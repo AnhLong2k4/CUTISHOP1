@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "paths": {
+      "@cutishop1/contracts": ["../contracts/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}
