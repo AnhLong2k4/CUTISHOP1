@@ -1,0 +1,30 @@
+{
+  "name": "cutishop1",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "Server",
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "npm --workspace @cutishop1/server run dev",
+    "dev:storefront": "npm --workspace @cutishop1/storefront run dev",
+    "dev:admin": "npm --workspace @cutishop1/admin run dev",
+    "build": "npm --workspace @cutishop1/contracts run build && npm --workspace @cutishop1/server run build && npm --workspace @cutishop1/storefront run build && npm --workspace @cutishop1/admin run build",
+    "typecheck": "npm --workspace @cutishop1/server run typecheck && npm --workspace @cutishop1/storefront run typecheck && npm --workspace @cutishop1/admin run typecheck",
+    "lint": "eslint .",
+    "test": "npm --workspace @cutishop1/server run test && npm --workspace @cutishop1/storefront run test && npm --workspace @cutishop1/admin run test",
+    "create-admin": "npm --workspace @cutishop1/server run create-admin",
+    "seed:dev": "npm --workspace @cutishop1/server run seed:dev"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0",
+    "typescript-eslint": "^8.19.0",
+    "@eslint/js": "^9.17.0",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
