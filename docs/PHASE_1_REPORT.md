@@ -94,7 +94,7 @@ Môi trường: sandbox Linux của Muse, Node v24.22.1, MongoDB
 | E2E trình duyệt + responsive 360/390/desktop | trình duyệt tự động mở localhost | **BLOCKED** — trình duyệt tự động không điều hướng được localhost (lượt này tác vụ trình duyệt lỗi hoàn toàn; vòng trước bị từ chối `invalid_request`). Chỉ có bằng chứng HTTP 200 cho 5173/5174/8081, không phải bằng chứng giao diện |
 | Gửi email thật qua SMTP | — | **NOT RUN** — chưa có cấu hình SMTP. Luồng quên/đặt lại mật khẩu đã kiểm chứng end-to-end qua ConsoleMailer ở chế độ dev (liên kết trong log máy chủ → đặt lại → đăng nhập bằng mật khẩu mới → dùng lại token bị 400). Chưa có email thật nào được gửi/nhận |
 | Upload ảnh qua Cloudinary | API test với file thật | **NOT RUN** phần tích hợp — endpoint trả đúng 503 `MEDIA_NOT_CONFIGURED` khi chưa cấu hình (đã kiểm chứng). Chưa kiểm chứng upload thành công vì không có credentials |
-| GitHub Actions CI | workflow đã commit trong PR | **NOT RUN** tại thời điểm viết báo cáo — kết quả CI trên PR cần được đối chiếu khi review |
+| GitHub Actions CI | file workflow | **BLOCKED khi đẩy lên GitHub** — kết nối GitHub của Muse không có quyền ghi vào `.github/workflows/` (API trả 403). Nội dung workflow đã được commit tại `docs/ci-workflow.yml`; bạn chỉ cần tạo file `.github/workflows/ci.yml` trên giao diện web GitHub với đúng nội dung đó (một lần, khoảng một phút) thì CI sẽ chạy trên mọi PR. Các bước kiểm tra tương đương đã chạy đầy đủ ở local/sandbox (lint, typecheck, test, build — xem các dòng trên) |
 
 Ba lỗi thật đã phát hiện và sửa trong quá trình (đều có test bắt
 lại): validator số nguyên VND chạy trên giá trị null khiến tạo sản
@@ -154,7 +154,7 @@ dùng chế độ dev (liên kết in ở log backend) như đã kiểm chứng.
 ## 8. Hướng dẫn review Pull Request
 
 1. Đọc báo cáo này và `docs/ARCHITECTURE_DECISIONS.md` trước.
-2. Đối chiếu kết quả CI trên PR (lint/typecheck/test/build).
+2. Nếu bạn đã đặt file CI theo ghi chú ở mục 4, đối chiếu kết quả CI trên PR (lint/typecheck/test/build); chưa đặt cũng không sao vì các bước tương đương đã có kết quả trong báo cáo này.
 3. Chạy local theo mục 7; đăng ký một tài khoản test mới (tránh
    email trùng — trùng sẽ trả 409 đúng thiết kế), đăng nhập,
    đăng xuất, quên mật khẩu bằng chế độ dev hoặc SMTP của bạn.
