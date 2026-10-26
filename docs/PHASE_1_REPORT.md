@@ -6,6 +6,13 @@
 - Trạng thái kết thúc: Pull Request chờ review. KHÔNG merge, KHÔNG
   deploy, KHÔNG chạm dữ liệu production.
 
+> **Cập nhật 2026-10-26 (hậu kiểm sau merge):** trạng thái ở đầu báo
+> cáo này là trạng thái tại ngày 2026-10-24. Code Phase 1 cùng hai
+> vòng security remediation đã vào `main` qua PR #2 (đã merge) —
+> xem **Mục 12** ở cuối báo cáo để biết trạng thái hiện tại,
+> dependency hiện tại và trạng thái CI. Phần thân báo cáo (Mục 1–11)
+> được giữ nguyên như bằng chứng lịch sử tại thời điểm thực hiện.
+
 ## 1. Phạm vi đã thực hiện
 
 Đúng phạm vi Phase 1 đã được duyệt: nền tảng monorepo, authentication
@@ -208,3 +215,101 @@ liệu nào ngoài các database test tự tạo trong sandbox
 (`cutishop1_runtime_test`, `cutishop1_seed_test` và MongoDB
 in-memory của test); repository CUTISHOP cũ không bị thay đổi
 trong Phase 1 này.
+
+## 12. Cập nhật hậu kiểm (2026-10-26) — trạng thái hiện tại
+
+Mục này ghi trạng thái SAU ngày báo cáo gốc (2026-10-24). Mọi số
+liệu kiểm thử ở Mục 4–6 vẫn là bằng chứng tại thời điểm Phase 1
+(sandbox, Node v24.22.1) và không bị viết lại.
+
+### 12.1. Trạng thái merge và PR (xác minh trực tiếp trên GitHub, 2026-10-26)
+
+- Toàn bộ code Phase 1 cùng hai vòng security remediation đã vào
+  nhánh `main` qua **PR #2** (`fix/phase1-security-audit-followup`
+  → `main`), commit merge trên `main`:
+  `3f654bcc05c2ab5dd603923af87a18d03c5da7c0` — "Merge pull request
+  #2 from AnhLong2k4/fix/phase1-security-audit-followup". Lịch sử
+  `main` chứa các commit của Phase 1 (`e982149e`), vòng 1
+  (`beeb16d9`, `b226b1be`) và vòng 2 (`76a86f22`, `5f2c47bb`).
+  Ghi chú minh bạch: công cụ kết nối GitHub hiển thị PR #2 là
+  "closed" với cờ `merged=false`; bằng chứng quyết định là commit
+  merge trên `main` nêu trên.
+- **PR #1** (`fix/phase1-security-audit` →
+  `feat/phase1-foundation-auth-catalog`) tại thời điểm kiểm tra
+  vẫn ở trạng thái **OPEN**. Về nội dung, PR #1 đã bị thay thế:
+  mọi commit của nó đã nằm trong `main` qua PR #2. Việc đóng
+  PR #1 là quyết định của chủ repo — chưa ai đóng nó.
+- Chưa deploy production; chưa thao tác dữ liệu thật.
+
+### 12.2. Dependency hiện tại (sau hai vòng remediation)
+
+Phiên bản ở Mục 6 là ảnh chụp tại thời điểm Phase 1 (zod 3.25.76,
+nodemailer 6.10.1, vitest 3.2.7). Phiên bản hiện tại trong
+`package-lock.json` trên `main`:
+
+- nodemailer **10.2.1** (vòng 1: 7.0.13; vòng 2: 10.2.1 —
+  ngoài range advisory `<=10.1.3`); `@types/nodemailer` đã gỡ bỏ
+  vì nodemailer 10 bundle sẵn types.
+- zod **4.6.7** (đã migrate Zod 3 → 4 ở vòng 2; ngoài range
+  `<4.6.6`).
+- vitest / @vitest/mocker **4.1.12**; **tinypool không còn** trong
+  cây dependency (Vitest 4 không còn phụ thuộc nó).
+
+Chi tiết từng vòng: `docs/SECURITY_REMEDIATION_REPORT.md` (vòng 1)
+và `docs/SECURITY_REMEDIATION_FOLLOWUP.md` (vòng 2). Lưu ý kết luận
+vòng 1 về zod và nodemailer 7.0.13 đã bị vòng 2 thay thế bằng bằng
+chứng audit trên Windows (xem ghi chú đầu báo cáo vòng 2).
+
+Bằng chứng audit hiện có: **0 vulnerabilities theo lần chạy
+`npm audit` của chủ repo trên Windows ngày 2026-10-26** (Node
+v24.15.0, npm 11.12.1) trên nhánh
+`fix/phase1-security-audit-followup` trước merge — cùng cây
+dependency đã merge vào `main`. Cùng lần chạy đó: `npm ci` OK,
+lint PASS, typecheck PASS, `npm test` **47 tests PASS** (Server
+44/44, storefront 2/2, admin 1/1), build PASS. `npm audit` trong
+sandbox của Muse vẫn bị chặn (proxy trả 403 `policy_denied`)
+nên phía Muse chưa có output audit riêng cho trạng thái này —
+con số 0 nêu trên dựa vào lần chạy Windows của chủ repo, không
+phải kết quả sandbox.
+
+### 12.3. Trạng thái CI
+
+- Tại thời điểm báo cáo gốc, việc đẩy `.github/workflows/ci.yml`
+  qua kết nối GitHub của Muse bị chặn 403 (xem Mục 4) và file mẫu
+  nằm ở `docs/ci-workflow.yml`.
+- Trong đợt ổn định hậu merge (PR `chore/post-phase1-ci-docs-sync`,
+  2026-10-26) đã thử lại đúng một lần: đẩy file
+  `.github/workflows/ci.yml` (nội dung lấy nguyên từ
+  `docs/ci-workflow.yml`, đã đối chiếu tương thích: trigger
+  `pull_request` + push lên `main` và `feat/**`;
+  `actions/checkout@v4`, `actions/setup-node@v4`, Node 24,
+  `cache: npm`; `npm ci` → lint → typecheck → test → build — mọi
+  script đều có thật trong `package.json` gốc) và GitHub API vẫn
+  trả **403** — nguyên văn rút gọn: `failed to create tree: POST
+  .../git/trees: 403 Resource not accessible by integration`.
+  Kết luận: **BLOCKED** — kết nối GitHub của Muse vẫn thiếu
+  quyền ghi vào `.github/workflows/`; PR đợt này vì vậy chỉ gồm
+  phần đồng bộ tài liệu, không kèm file workflow.
+- Việc còn lại đúng một bước thuộc về chủ repo: trên giao diện
+  web GitHub, tạo file `.github/workflows/ci.yml` với đúng nội
+  dung của `docs/ci-workflow.yml` (có thể thêm thẳng vào nhánh
+  của PR đợt này để Actions chạy ngay trên PR, hoặc vào `main`
+  sau khi merge).
+- Không tuyên bố GitHub Actions đã chạy thành công cho tới khi có
+  kết quả thực thi thật trên tab Checks/Actions. Các bước kiểm
+  chứng tương đương trong sandbox (npm ci, lint, typecheck,
+  test, build — tất cả PASS trên nội dung đợt này) được ghi
+  trong PR.
+
+### 12.4. Giới hạn còn tồn tại (không đổi so với Mục 9)
+
+- Gửi email thật qua SMTP: **NOT RUN** — chưa cấu hình SMTP thật;
+  luồng quên/đặt lại mật khẩu đã kiểm chứng qua ConsoleMailer
+  (dev) và adapter đủ 3 chế độ.
+- Upload ảnh thành công qua Cloudinary: **NOT RUN** — mới kiểm
+  chứng nhánh 503 `MEDIA_NOT_CONFIGURED` khi chưa cấu hình.
+- E2E trình duyệt và responsive 360/390/desktop: **chưa kiểm
+  chứng bằng trình duyệt thật** (trình duyệt tự động của Muse bị
+  chặn localhost) — cần xác minh thủ công trên Windows.
+- `npm audit` phía sandbox: **BLOCKED** (403 `policy_denied`) —
+  xem 12.2 về nguồn bằng chứng audit hiện có.
