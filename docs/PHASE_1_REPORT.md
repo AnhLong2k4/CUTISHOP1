@@ -274,6 +274,8 @@ phải kết quả sandbox.
 
 ### 12.3. Trạng thái CI
 
+Lịch sử (giữ nguyên như bằng chứng tại thời điểm xảy ra):
+
 - Tại thời điểm báo cáo gốc, việc đẩy `.github/workflows/ci.yml`
   qua kết nối GitHub của Muse bị chặn 403 (xem Mục 4) và file mẫu
   nằm ở `docs/ci-workflow.yml`.
@@ -287,19 +289,31 @@ phải kết quả sandbox.
   script đều có thật trong `package.json` gốc) và GitHub API vẫn
   trả **403** — nguyên văn rút gọn: `failed to create tree: POST
   .../git/trees: 403 Resource not accessible by integration`.
-  Kết luận: **BLOCKED** — kết nối GitHub của Muse vẫn thiếu
-  quyền ghi vào `.github/workflows/`; PR đợt này vì vậy chỉ gồm
-  phần đồng bộ tài liệu, không kèm file workflow.
-- Việc còn lại đúng một bước thuộc về chủ repo: trên giao diện
-  web GitHub, tạo file `.github/workflows/ci.yml` với đúng nội
-  dung của `docs/ci-workflow.yml` (có thể thêm thẳng vào nhánh
-  của PR đợt này để Actions chạy ngay trên PR, hoặc vào `main`
-  sau khi merge).
-- Không tuyên bố GitHub Actions đã chạy thành công cho tới khi có
-  kết quả thực thi thật trên tab Checks/Actions. Các bước kiểm
-  chứng tương đương trong sandbox (npm ci, lint, typecheck,
-  test, build — tất cả PASS trên nội dung đợt này) được ghi
-  trong PR.
+  Tại thời điểm đó kết luận là **BLOCKED** ở phía kết nối của
+  Muse (thiếu quyền ghi vào `.github/workflows/`), và bước tạo
+  file được để lại cho chủ repo qua giao diện web.
+
+Trạng thái hiện tại (cập nhật 2026-10-26, sau khi chủ repo tự tạo
+file qua giao diện web):
+
+- `.github/workflows/ci.yml` **đã tồn tại trên nhánh của PR
+  `chore/post-phase1-ci-docs-sync`** (commit `dc78350d` — "Create
+  ci.yml", do chủ repo tạo qua giao diện web GitHub ngày
+  2026-10-26). Nội dung đã được Muse đọc lại từ GitHub và đối
+  chiếu: **giống hệt** `docs/ci-workflow.yml` (502 byte) — trigger
+  `pull_request` + push lên `main` và `feat/**`, job `verify`
+  chạy `npm ci` → lint → typecheck → test → build trên Node 24.
+- **GitHub Actions đã chạy:** run ID `40350341580`, job `verify`
+  = **success**, gồm Install, Lint, Typecheck, Test và Build đều
+  thành công (nguồn: chủ repo báo cáo kết quả run; kết nối của
+  Muse không có công cụ đọc Actions runs nên không tự đọc lại
+  được chi tiết run). Đây là lần chạy trên nhánh PR trước commit
+  đồng bộ tài liệu này; commit tài liệu mới sẽ kích hoạt một run
+  mới theo trigger `pull_request` — kết quả của run mới kiểm tra
+  ở tab Checks của PR.
+- Sau khi PR này merge vào `main`, workflow sẽ nằm trên `main`
+  và chạy cho mọi pull request cũng như mỗi lần push lên `main`
+  (và các nhánh `feat/**`).
 
 ### 12.4. Giới hạn còn tồn tại (không đổi so với Mục 9)
 
