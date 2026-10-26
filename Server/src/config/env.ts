@@ -14,7 +14,7 @@ const envSchema = z.object({
     .default(
       'http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://localhost:5174',
     ),
-  APP_URL: z.string().url().default('http://127.0.0.1:5173'),
+  APP_URL: z.url().default('http://127.0.0.1:5173'),
   MAIL_HOST: z.string().optional().default(''),
   MAIL_PORT: z.coerce.number().int().default(587),
   MAIL_USER: z.string().optional().default(''),

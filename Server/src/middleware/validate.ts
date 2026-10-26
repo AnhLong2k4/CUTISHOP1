@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { ZodType, ZodTypeDef } from 'zod';
+import type { ZodType } from 'zod';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -8,7 +8,7 @@ declare module 'express-serve-static-core' {
   }
 }
 
-export function validateBody<T>(schema: ZodType<T, ZodTypeDef, unknown>) {
+export function validateBody<T>(schema: ZodType<T, unknown>) {
   return (req: Request, _res: Response, next: NextFunction) => {
     try {
       req.validatedBody = schema.parse(req.body ?? {});
@@ -19,7 +19,7 @@ export function validateBody<T>(schema: ZodType<T, ZodTypeDef, unknown>) {
   };
 }
 
-export function validateQuery<T>(schema: ZodType<T, ZodTypeDef, unknown>) {
+export function validateQuery<T>(schema: ZodType<T, unknown>) {
   return (req: Request, _res: Response, next: NextFunction) => {
     try {
       req.validatedQuery = schema.parse(req.query ?? {});

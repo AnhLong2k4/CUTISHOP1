@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const email = z.string().trim().email('Email không hợp lệ').max(160);
+const email = z.string().trim().pipe(z.email('Email không hợp lệ').max(160));
 const password = z
   .string()
   .min(8, 'Mật khẩu phải có ít nhất 8 ký tự')
@@ -81,9 +81,9 @@ export const productInputSchema = z
     brand: objectIdString.optional(),
     price: z.number().int('Giá phải là số nguyên VND').min(0),
     salePrice: z.number().int('Giá khuyến mãi phải là số nguyên VND').min(0).optional(),
-    saleStartsAt: z.string().datetime().optional(),
-    saleEndsAt: z.string().datetime().optional(),
-    images: z.array(z.string().url()).max(10).optional(),
+    saleStartsAt: z.iso.datetime().optional(),
+    saleEndsAt: z.iso.datetime().optional(),
+    images: z.array(z.url()).max(10).optional(),
     isActive: z.boolean().optional(),
     variants: z.array(variantSchema).min(1, 'Sản phẩm cần ít nhất một biến thể').max(50),
   })
