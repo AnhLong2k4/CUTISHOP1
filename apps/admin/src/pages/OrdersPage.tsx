@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/ui';
 import { api } from '../lib/api';
+import { apiStatus, isNetworkError, isSessionExpired } from '../lib/apiError';
 import { orderStatusLabel } from '../lib/orderStatus';
 
 const FILTERS: Array<{ value: '' | OrderStatus; label: string }> = [
@@ -34,8 +35,16 @@ export function OrdersPage() {
       const data = await api.adminListOrders({ page, limit: 20, status: filter || undefined });
       setItems(data.items);
       setTotalPages(data.pagination.totalPages);
-    } catch {
-      setError('Không tải được danh sách đơn hàng.');
+    } catch (err) {
+      setError(
+        isSessionExpired(err)
+          ? 'Phiên quản trị đã hết hạn. Hãy đăng xuất và đăng nhập lại.'
+          : apiStatus(err) === 403
+            ? 'Tài khoản này không có quyền quản trị.'
+            : isNetworkError(err)
+              ? 'Không kết nối được máy chủ. Hãy kiểm tra kết nối mạng và thử lại.'
+              : 'Không tải được danh sách đơn hàng.',
+      );
     } finally {
       setLoading(false);
     }

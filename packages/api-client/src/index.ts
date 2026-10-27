@@ -85,11 +85,19 @@ export class ApiClient {
     const token = auth ? this.tokenStore.get() : null;
     if (token) headers.set('Authorization', `Bearer ${token}`);
 
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      ...rest,
-      headers,
-      credentials: 'include',
-    });
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        ...rest,
+        headers,
+        credentials: 'include',
+      });
+    } catch {
+      // A failed fetch (server down, network down, CORS blocked) used to
+      // surface as a raw TypeError with no status or code, so pages could
+      // not tell it apart from a server error. Normalise it here.
+      throw new ApiError(0, 'NETWORK_ERROR', 'Không kết nối được máy chủ. Hãy kiểm tra kết nối mạng và thử lại.');
+    }
     const text = await response.text();
     let body: Envelope<T> | null = null;
     if (text) {

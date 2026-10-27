@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/States';
 import { api } from '../lib/api';
+import { apiCode, apiStatus, isNetworkError, isSessionExpired } from '../lib/apiError';
 import { orderStatusLabel, paymentStatusLabel } from '../lib/orderStatus';
 
 export function OrderDetailPage() {
@@ -14,17 +15,28 @@ export function OrderDetailPage() {
   const [reason, setReason] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setError(null);
+    setSessionExpired(false);
     try {
       setOrder(await api.getMyOrder(id));
     } catch (err) {
-      const status = (err as { status?: number }).status;
-      setError(status === 404 ? 'Không tìm thấy đơn hàng.' : 'Không tải được chi tiết đơn hàng.');
+      if (isSessionExpired(err)) {
+        setSessionExpired(true);
+        return;
+      }
+      setError(
+        isNetworkError(err)
+          ? 'Không kết nối được máy chủ. Hãy kiểm tra kết nối mạng và thử lại.'
+          : apiStatus(err) === 404
+            ? 'Không tìm thấy đơn hàng.'
+            : 'Không tải được chi tiết đơn hàng.',
+      );
     } finally {
       setLoading(false);
     }
@@ -35,6 +47,16 @@ export function OrderDetailPage() {
   }, [load]);
 
   if (loading) return <LoadingState label="Đang tải đơn hàng…" />;
+  if (sessionExpired) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-10">
+        <p className="text-sm text-neutral-600">Phiên đăng nhập đã hết hạn. Đăng nhập lại để xem đơn hàng.</p>
+        <Link to="/login" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
+          Đăng nhập
+        </Link>
+      </div>
+    );
+  }
   if (error || !order) {
     return (
       <div className="flex flex-col items-center gap-4">
@@ -55,9 +77,13 @@ export function OrderDetailPage() {
       else await api.requestReturnMyOrder(order.id, reason || undefined);
       setReloadKey((k) => k + 1);
     } catch (err) {
-      const code = (err as { code?: string }).code;
+      const code = apiCode(err);
       setNotice(
-        code === 'ORDER_TRANSITION_INVALID'
+        isSessionExpired(err)
+          ? 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi thử lại.'
+          : isNetworkError(err)
+            ? 'Không kết nối được máy chủ. Hãy thử lại.'
+            : code === 'ORDER_TRANSITION_INVALID'
           ? 'Không thể thực hiện thao tác này với trạng thái hiện tại.'
           : code === 'RETURN_WINDOW_EXPIRED'
             ? 'Đã quá 7 ngày kể từ khi giao hàng, không thể yêu cầu trả hàng.'

@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
 import { api } from '../lib/api';
+import { apiCode, isNetworkError, isSessionExpired } from '../lib/apiError';
 
 export function CartPage() {
   const { status } = useAuth();
@@ -12,11 +13,13 @@ export function CartPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setSessionExpired(false);
     try {
       const cart = await api.getCart();
       if (cart.items.length === 0) {
@@ -28,11 +31,17 @@ export function CartPage() {
       const data = await api.quote({ items: cart.items });
       setQuote(data);
     } catch (err) {
-      const code = (err as { code?: string }).code;
+      if (isSessionExpired(err)) {
+        setSessionExpired(true);
+        return;
+      }
+      const code = apiCode(err);
       setError(
-        code === 'PRODUCT_NOT_FOUND' || code === 'VARIANT_NOT_FOUND'
-          ? 'Có sản phẩm trong giỏ đã ngừng bán hoặc không còn biến thể này. Hãy xóa dòng đó và thử lại.'
-          : 'Không tải được giỏ hàng. Vui lòng thử lại.',
+        isNetworkError(err)
+          ? 'Không kết nối được máy chủ. Hãy kiểm tra kết nối mạng và thử lại.'
+          : code === 'PRODUCT_NOT_FOUND' || code === 'VARIANT_NOT_FOUND'
+            ? 'Có sản phẩm trong giỏ đã ngừng bán hoặc không còn biến thể này. Hãy xóa dòng đó và thử lại.'
+            : 'Không tải được giỏ hàng. Vui lòng thử lại.',
       );
     } finally {
       setLoading(false);
@@ -45,10 +54,14 @@ export function CartPage() {
   }, [status, load]);
 
   if (status === 'loading' || loading) return <LoadingState label="Đang tải giỏ hàng…" />;
-  if (status === 'anonymous') {
+  if (status === 'anonymous' || sessionExpired) {
     return (
       <div className="flex flex-col items-center gap-4 py-10">
-        <p className="text-sm text-neutral-600">Đăng nhập để xem giỏ hàng của bạn.</p>
+        <p className="text-sm text-neutral-600">
+          {sessionExpired
+            ? 'Phiên đăng nhập đã hết hạn. Đăng nhập lại để xem giỏ hàng của bạn.'
+            : 'Đăng nhập để xem giỏ hàng của bạn.'}
+        </p>
         <Link to="/login" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
           Đăng nhập
         </Link>

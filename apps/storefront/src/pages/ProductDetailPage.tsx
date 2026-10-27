@@ -29,7 +29,12 @@ export function ProductDetailPage() {
     try {
       await api.addCartItem({ productId: product.id, sku: selectedVariant.sku, quantity });
       setCartMessage('Đã thêm vào giỏ hàng.');
-    } catch {
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401) {
+        navigate('/login');
+        return;
+      }
       setCartMessage('Không thêm được vào giỏ hàng. Vui lòng thử lại.');
     } finally {
       setCartBusy(false);

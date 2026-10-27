@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ErrorState, ghostButton, LoadingState, primaryButton } from '../components/ui';
 import { api } from '../lib/api';
+import { apiStatus, isNetworkError, isSessionExpired } from '../lib/apiError';
 import { NEXT_STATUSES, orderStatusLabel } from '../lib/orderStatus';
 
 export function OrderDetailPage() {
@@ -24,8 +25,18 @@ export function OrderDetailPage() {
     setError(null);
     try {
       setOrder(await api.adminGetOrder(id));
-    } catch {
-      setError('Không tải được chi tiết đơn hàng.');
+    } catch (err) {
+      setError(
+        isSessionExpired(err)
+          ? 'Phiên quản trị đã hết hạn. Hãy đăng xuất và đăng nhập lại.'
+          : apiStatus(err) === 403
+            ? 'Tài khoản này không có quyền quản trị.'
+            : apiStatus(err) === 404
+              ? 'Không tìm thấy đơn hàng.'
+              : isNetworkError(err)
+                ? 'Không kết nối được máy chủ. Hãy kiểm tra kết nối mạng và thử lại.'
+                : 'Không tải được chi tiết đơn hàng.',
+      );
     } finally {
       setLoading(false);
     }
@@ -65,7 +76,11 @@ export function OrderDetailPage() {
     } catch (err) {
       const code = (err as { code?: string }).code;
       setNotice(
-        code === 'ORDER_TRANSITION_INVALID'
+        isSessionExpired(err)
+          ? 'Phiên quản trị đã hết hạn. Hãy đăng nhập lại rồi thử lại.'
+          : isNetworkError(err)
+            ? 'Không kết nối được máy chủ. Hãy thử lại.'
+            : code === 'ORDER_TRANSITION_INVALID'
           ? 'Không thể chuyển sang trạng thái này từ trạng thái hiện tại.'
           : code === 'RESERVATION_EXPIRED'
             ? 'Đơn đã hết hạn giữ kho, không thể xác nhận.'

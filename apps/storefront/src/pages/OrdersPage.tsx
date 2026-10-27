@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
 import { api } from '../lib/api';
+import { isNetworkError, isSessionExpired } from '../lib/apiError';
 import { orderStatusLabel } from '../lib/orderStatus';
 
 const FILTERS: Array<{ value: '' | OrderStatus; label: string }> = [
@@ -25,17 +26,27 @@ export function OrdersPage() {
   const [filter, setFilter] = useState<'' | OrderStatus>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setSessionExpired(false);
     try {
       const data = await api.listMyOrders({ page, limit: 20, status: filter || undefined });
       setItems(data.items);
       setTotalPages(data.pagination.totalPages);
-    } catch {
-      setError('Không tải được lịch sử đơn hàng.');
+    } catch (err) {
+      if (isSessionExpired(err)) {
+        setSessionExpired(true);
+        return;
+      }
+      setError(
+        isNetworkError(err)
+          ? 'Không kết nối được máy chủ. Hãy kiểm tra kết nối mạng và thử lại.'
+          : 'Không tải được lịch sử đơn hàng.',
+      );
     } finally {
       setLoading(false);
     }
@@ -47,10 +58,14 @@ export function OrdersPage() {
   }, [status, load]);
 
   if (status === 'loading' || loading) return <LoadingState label="Đang tải đơn hàng…" />;
-  if (status === 'anonymous') {
+  if (status === 'anonymous' || sessionExpired) {
     return (
       <div className="flex flex-col items-center gap-4 py-10">
-        <p className="text-sm text-neutral-600">Đăng nhập để xem lịch sử đơn hàng.</p>
+        <p className="text-sm text-neutral-600">
+          {sessionExpired
+            ? 'Phiên đăng nhập đã hết hạn. Đăng nhập lại để xem lịch sử đơn hàng.'
+            : 'Đăng nhập để xem lịch sử đơn hàng.'}
+        </p>
         <Link to="/login" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
           Đăng nhập
         </Link>

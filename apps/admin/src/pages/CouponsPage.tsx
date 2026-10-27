@@ -2,6 +2,7 @@ import { formatVND } from '@cutishop1/contracts';
 import { useCallback, useEffect, useState } from 'react';
 import { ErrorState, ghostButton, inputClass, labelClass, LoadingState, primaryButton } from '../components/ui';
 import { api } from '../lib/api';
+import { apiStatus, isNetworkError, isSessionExpired } from '../lib/apiError';
 
 interface CouponRow {
   id: string;
@@ -40,8 +41,16 @@ export function CouponsPage() {
     try {
       const page = await api.adminListCoupons({ limit: 100 });
       setItems(page.items as unknown as CouponRow[]);
-    } catch {
-      setError('Không tải được danh sách mã giảm giá.');
+    } catch (err) {
+      setError(
+        isSessionExpired(err)
+          ? 'Phiên quản trị đã hết hạn. Hãy đăng xuất và đăng nhập lại.'
+          : apiStatus(err) === 403
+            ? 'Tài khoản này không có quyền quản trị.'
+            : isNetworkError(err)
+              ? 'Không kết nối được máy chủ. Hãy kiểm tra kết nối mạng và thử lại.'
+              : 'Không tải được danh sách mã giảm giá.',
+      );
     } finally {
       setLoading(false);
     }

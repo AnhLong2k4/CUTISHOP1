@@ -401,3 +401,211 @@ describe('order lifecycle, coupon and ownership', () => {
     expect(res.body.error.code).toBe('SKU_IN_USE_BY_ORDER');
   });
 });
+
+describe('return, refund and other lifecycle branches (added in browser-check phase)', () => {
+  async function driveToDelivered(orderId: string) {
+    for (const status of ['CONFIRMED', 'PROCESSING', 'SHIPPING', 'DELIVERED']) {
+      const res = await adminStatus(orderId, status);
+      expect(res.status).toBe(200);
+    }
+  }
+
+  async function requestReturn(orderId: string, token = userToken) {
+    return request(app)
+      .post(`/api/v1/orders/${orderId}/return-request`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reason: 'Không vừa size' });
+  }
+
+  it('RETURNED with restock restores stock, then REFUNDED records manual refund only', async () => {
+    const created = await createOrder(userToken);
+    const id = created.body.data.id as string;
+    await driveToDelivered(id);
+    let stored = await Product.findById(productId);
+    expect(stored!.variants[0].quantity).toBe(8);
+    expect(stored!.variants[0].reserved).toBe(0);
+
+    expect((await requestReturn(id)).status).toBe(200);
+    const returned = await adminStatus(id, 'RETURNED', { restock: true });
+    expect(returned.status).toBe(200);
+    expect(returned.body.data.status).toBe('RETURNED');
+    expect(returned.body.data.paymentStatus).toBe('PAID_ON_DELIVERY');
+    stored = await Product.findById(productId);
+    expect(stored!.variants[0].quantity).toBe(10);
+    const restocks = await InventoryMovement.find({ orderId: id, type: 'RESTOCK' });
+    expect(restocks).toHaveLength(1);
+    expect(restocks[0].deltaQuantity).toBe(2);
+
+    const refunded = await adminStatus(id, 'REFUNDED', { reason: 'Đã chuyển khoản tay' });
+    expect(refunded.status).toBe(200);
+    expect(refunded.body.data.status).toBe('REFUNDED');
+    expect(refunded.body.data.paymentStatus).toBe('REFUNDED');
+    stored = await Product.findById(productId);
+    expect(stored!.variants[0].quantity).toBe(10);
+    expect(stored!.variants[0].reserved).toBe(0);
+  });
+
+  it('RETURNED without restock does not restore stock, refund still works', async () => {
+    const created = await createOrder(userToken);
+    const id = created.body.data.id as string;
+    await driveToDelivered(id);
+    expect((await requestReturn(id)).status).toBe(200);
+    const returned = await adminStatus(id, 'RETURNED', { restock: false });
+    expect(returned.status).toBe(200);
+    const stored = await Product.findById(productId);
+    expect(stored!.variants[0].quantity).toBe(8);
+    expect(await InventoryMovement.countDocuments({ orderId: id, type: 'RESTOCK' })).toBe(0);
+    expect((await adminStatus(id, 'REFUNDED')).status).toBe(200);
+  });
+
+  it('REFUNDED is rejected when the order was never paid on delivery', async () => {
+    const created = await createOrder(userToken);
+    const id = created.body.data.id as string;
+    await driveToDelivered(id);
+    expect((await requestReturn(id)).status).toBe(200);
+    expect((await adminStatus(id, 'RETURNED', { restock: false })).status).toBe(200);
+    // Artificial state manipulation to exercise the guard: a RETURNED
+    // order that never reached PAID_ON_DELIVERY must not be refunded.
+    await Order.updateOne({ _id: id }, { $set: { paymentStatus: 'UNPAID' } });
+    const res = await adminStatus(id, 'REFUNDED');
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('REFUND_NOT_ALLOWED');
+  });
+
+  it('return request after 7 days is rejected', async () => {
+    const created = await createOrder(userToken);
+    const id = created.body.data.id as string;
+    await driveToDelivered(id);
+    await Order.updateOne(
+      { _id: id },
+      { $set: { deliveredAt: new Date(Date.now() - 8 * 24 * 3600 * 1000) } },
+    );
+    const res = await requestReturn(id);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('RETURN_WINDOW_EXPIRED');
+  });
+
+  it('delivery failure can retry shipping without a second reservation, then cancel releases once and does not refund the coupon', async () => {
+    await Coupon.create({
+      code: 'SALE10',
+      type: 'PERCENT',
+      value: 10,
+      maxDiscount: 50000,
+    });
+    const created = await createOrder(userToken, { couponCode: 'SALE10' });
+    const id = created.body.data.id as string;
+    expect((await adminStatus(id, 'CONFIRMED')).status).toBe(200);
+    expect((await adminStatus(id, 'PROCESSING')).status).toBe(200);
+    expect((await adminStatus(id, 'SHIPPING')).status).toBe(200);
+    expect((await adminStatus(id, 'DELIVERY_FAILED', { reason: 'Khách không nghe máy' })).status).toBe(200);
+    let stored = await Product.findById(productId);
+    expect(stored!.variants[0].reserved).toBe(2);
+    expect((await adminStatus(id, 'SHIPPING')).status).toBe(200);
+    expect(await InventoryMovement.countDocuments({ orderId: id, type: 'RESERVE' })).toBe(1);
+    stored = await Product.findById(productId);
+    expect(stored!.variants[0].reserved).toBe(2);
+    expect((await adminStatus(id, 'DELIVERY_FAILED')).status).toBe(200);
+    const cancelled = await adminStatus(id, 'CANCELLED', { reason: 'Giao thất bại nhiều lần' });
+    expect(cancelled.status).toBe(200);
+    stored = await Product.findById(productId);
+    expect(stored!.variants[0].reserved).toBe(0);
+    expect(await InventoryMovement.countDocuments({ orderId: id, type: 'RELEASE' })).toBe(1);
+    const coupon = await Coupon.findOne({ code: 'SALE10' });
+    expect(coupon!.usedCount).toBe(1);
+  });
+
+  it('owner cannot cancel a PROCESSING order, admin can', async () => {
+    const created = await createOrder(userToken);
+    const id = created.body.data.id as string;
+    expect((await adminStatus(id, 'CONFIRMED')).status).toBe(200);
+    expect((await adminStatus(id, 'PROCESSING')).status).toBe(200);
+    const ownerCancel = await request(app)
+      .post(`/api/v1/orders/${id}/cancel`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({});
+    expect(ownerCancel.status).toBe(403);
+    expect(ownerCancel.body.error.code).toBe('FORBIDDEN');
+    const adminCancel = await adminStatus(id, 'CANCELLED', { reason: 'Admin hủy trước giao' });
+    expect(adminCancel.status).toBe(200);
+    const stored = await Product.findById(productId);
+    expect(stored!.variants[0].reserved).toBe(0);
+  });
+
+  it('owner can complete a delivered order; admin cannot request a return for them', async () => {
+    const created = await createOrder(userToken);
+    const id = created.body.data.id as string;
+    await driveToDelivered(id);
+    // The admin status endpoint intentionally does not accept
+    // RETURN_REQUESTED (a customer-only transition), so the request is
+    // rejected at validation, not by the role check. The customer
+    // endpoint is the only way to request a return.
+    const adminReturn = await adminStatus(id, 'RETURN_REQUESTED');
+    expect(adminReturn.status).toBe(400);
+    expect(adminReturn.body.error.code).toBe('VALIDATION_ERROR');
+    const completed = await request(app)
+      .post(`/api/v1/orders/${id}/complete`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({});
+    expect(completed.status).toBe(200);
+    expect(completed.body.data.status).toBe('COMPLETED');
+    const stored = await Product.findById(productId);
+    expect(stored!.variants[0].quantity).toBe(8);
+    expect(stored!.variants[0].reserved).toBe(0);
+  });
+
+  it('per-user coupon limit blocks a second order by the same user but not the first', async () => {
+    await Coupon.create({
+      code: 'ONEPERUSER',
+      type: 'FIXED',
+      value: 10000,
+      usageLimitPerUser: 1,
+    });
+    const first = await createOrder(userToken, { couponCode: 'ONEPERUSER' });
+    expect(first.status).toBe(201);
+    const second = await createOrder(userToken, { couponCode: 'ONEPERUSER' });
+    expect(second.status).toBe(409);
+    expect(second.body.error.code).toBe('COUPON_EXHAUSTED');
+    const coupon = await Coupon.findOne({ code: 'ONEPERUSER' });
+    expect(coupon!.usedCount).toBe(1);
+    expect(await Order.countDocuments({ couponCode: 'ONEPERUSER' })).toBe(1);
+  });
+
+  it('expired coupon and coupon below min order are rejected without creating an order', async () => {
+    await Coupon.create({
+      code: 'EXPIRED10',
+      type: 'PERCENT',
+      value: 10,
+      maxDiscount: 50000,
+      endsAt: new Date(Date.now() - 1000),
+    });
+    await Coupon.create({
+      code: 'BIGMIN',
+      type: 'FIXED',
+      value: 10000,
+      minOrderAmount: 1000000,
+    });
+    const expired = await createOrder(userToken, { couponCode: 'EXPIRED10' });
+    expect(expired.status).toBe(400);
+    expect(expired.body.error.code).toBe('COUPON_EXPIRED');
+    const belowMin = await createOrder(userToken, { couponCode: 'BIGMIN' });
+    expect(belowMin.status).toBe(400);
+    expect(belowMin.body.error.code).toBe('COUPON_MIN_ORDER');
+    expect(await Order.countDocuments({})).toBe(0);
+  });
+
+  it('expired reservation job does not cancel a CONFIRMED order', async () => {
+    const created = await createOrder(userToken);
+    const id = created.body.data.id as string;
+    expect((await adminStatus(id, 'CONFIRMED')).status).toBe(200);
+    await Order.updateOne(
+      { _id: id },
+      { $set: { reservationExpiresAt: new Date(Date.now() - 1000) } },
+    );
+    const expired = await expireReservations();
+    expect(expired).not.toContain(id);
+    const order = await Order.findById(id);
+    expect(order!.status).toBe('CONFIRMED');
+    const stored = await Product.findById(productId);
+    expect(stored!.variants[0].reserved).toBe(2);
+  });
+});

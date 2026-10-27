@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
 import { api } from '../lib/api';
+import { apiCode, apiStatus, isNetworkError, isSessionExpired } from '../lib/apiError';
 
 export function CheckoutPage() {
   const { status } = useAuth();
@@ -20,11 +21,13 @@ export function CheckoutPage() {
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const loadQuote = useCallback(async (coupon: string | null) => {
     setLoading(true);
     setError(null);
+    setSessionExpired(false);
     try {
       const cart = await api.getCart();
       if (cart.items.length === 0) {
@@ -34,17 +37,23 @@ export function CheckoutPage() {
       const data = await api.quote({ items: cart.items, couponCode: coupon ?? undefined });
       setQuote(data);
     } catch (err) {
-      const code = (err as { code?: string }).code;
+      if (isSessionExpired(err)) {
+        setSessionExpired(true);
+        return;
+      }
+      const code = apiCode(err);
       setError(
-        code === 'COUPON_NOT_FOUND'
-          ? 'Mã giảm giá không tồn tại.'
-          : code === 'COUPON_EXPIRED'
-            ? 'Mã giảm giá đã hết hạn.'
-            : code === 'COUPON_MIN_ORDER'
-              ? 'Đơn hàng chưa đạt giá trị tối thiểu của mã.'
-              : code === 'COUPON_EXHAUSTED'
-                ? 'Mã giảm giá đã hết lượt sử dụng.'
-                : 'Không tải được báo giá. Vui lòng thử lại.',
+        isNetworkError(err)
+          ? 'Không kết nối được máy chủ. Hãy kiểm tra kết nối mạng và thử lại.'
+          : code === 'COUPON_NOT_FOUND'
+            ? 'Mã giảm giá không tồn tại.'
+            : code === 'COUPON_EXPIRED'
+              ? 'Mã giảm giá đã hết hạn.'
+              : code === 'COUPON_MIN_ORDER'
+                ? 'Đơn hàng chưa đạt giá trị tối thiểu của mã.'
+                : code === 'COUPON_EXHAUSTED'
+                  ? 'Mã giảm giá đã hết lượt sử dụng.'
+                  : 'Không tải được báo giá. Vui lòng thử lại.',
       );
     } finally {
       setLoading(false);
@@ -57,10 +66,12 @@ export function CheckoutPage() {
   }, [status, loadQuote, appliedCoupon]);
 
   if (status === 'loading' || loading) return <LoadingState label="Đang tải báo giá…" />;
-  if (status === 'anonymous') {
+  if (status === 'anonymous' || sessionExpired) {
     return (
       <div className="flex flex-col items-center gap-4 py-10">
-        <p className="text-sm text-neutral-600">Đăng nhập để thanh toán.</p>
+        <p className="text-sm text-neutral-600">
+          {sessionExpired ? 'Phiên đăng nhập đã hết hạn. Đăng nhập lại để thanh toán.' : 'Đăng nhập để thanh toán.'}
+        </p>
         <Link to="/login" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
           Đăng nhập
         </Link>
@@ -120,15 +131,21 @@ export function CheckoutPage() {
       }
       navigate(`/orders/${order.id}`, { replace: true });
     } catch (err) {
-      const code = (err as { code?: string }).code;
+      const code = apiCode(err);
       setSubmitError(
-        code === 'INSUFFICIENT_STOCK'
-          ? 'Không đủ tồn kho cho một hoặc nhiều sản phẩm. Hãy kiểm tra lại giỏ hàng.'
-          : code === 'COUPON_EXHAUSTED'
-            ? 'Mã giảm giá đã hết lượt sử dụng. Hãy bỏ mã và đặt lại.'
-            : code === 'IDEMPOTENCY_KEY_REUSED'
-              ? 'Đơn này đã được tạo. Hãy kiểm tra lịch sử đơn hàng.'
-              : 'Không tạo được đơn hàng. Vui lòng thử lại.',
+        isSessionExpired(err)
+          ? 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại rồi đặt đơn.'
+          : isNetworkError(err)
+            ? 'Không kết nối được máy chủ. Đơn có thể chưa được tạo — hãy kiểm tra lịch sử đơn trước khi đặt lại.'
+            : code === 'INSUFFICIENT_STOCK'
+              ? 'Không đủ tồn kho cho một hoặc nhiều sản phẩm. Hãy kiểm tra lại giỏ hàng.'
+              : code === 'COUPON_EXHAUSTED'
+                ? 'Mã giảm giá đã hết lượt sử dụng. Hãy bỏ mã và đặt lại.'
+                : code === 'IDEMPOTENCY_KEY_REUSED'
+                  ? 'Đơn này đã được tạo. Hãy kiểm tra lịch sử đơn hàng.'
+                  : code === 'TRANSACTION_NOT_SUPPORTED' || apiStatus(err) === 503
+                    ? 'Máy chủ chưa cấu hình MongoDB replica set nên không thể tạo đơn. Hãy liên hệ quản trị.'
+                    : 'Không tạo được đơn hàng. Vui lòng thử lại.',
       );
     } finally {
       setSubmitting(false);
