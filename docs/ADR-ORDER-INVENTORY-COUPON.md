@@ -1,10 +1,17 @@
 # ADR cho PR 1 — Đơn hàng, tồn kho, mã giảm giá, idempotency (ĐỀ XUẤT, CHƯA TRIỂN KHAI)
 
-Trạng thái: **Đề xuất chờ duyệt.** Không có code đơn hàng, tồn kho mới,
-coupon hay AI nào được viết theo tài liệu này cho tới khi người dùng duyệt.
-Tài liệu này nối tiếp ADR-1 đến ADR-11 trong `docs/ARCHITECTURE_DECISIONS.md`
-và giữ nguyên các nguyên tắc: tiền là số nguyên VND, giá hiệu lực do server
-tính, RBAC kiểm tra ở server, tiền và quyền không tin client.
+Trạng thái: **Đề xuất chờ duyệt (bản sửa lần 2).** Không có code đơn hàng,
+tồn kho mới, coupon hay AI nào được viết theo tài liệu này cho tới khi
+người dùng duyệt bản sửa này. Tài liệu này nối tiếp ADR-1 đến ADR-11
+trong `docs/ARCHITECTURE_DECISIONS.md` và giữ nguyên các nguyên tắc:
+tiền là số nguyên VND, giá hiệu lực do server tính, RBAC kiểm tra ở
+server, tiền và quyền không tin client.
+
+Bản sửa lần 2 chốt thêm: phí vận chuyển do backend tính theo cấu hình
+(mặc định 0 đồng cho demo), thứ tự tính tiền, cơ chế hết hạn giữ kho
+khi worker gián đoạn/lặp, phạm vi MVP cho giao thất bại/trả hàng/hoàn
+tiền, và checklist kiểm thử chi tiết. Các mục kiểm thử trong tài liệu
+này là **yêu cầu chưa viết, chưa chạy** — không được ghi là PASS.
 
 Phạm vi áp dụng: checkout COD, khách đã đăng nhập. Chưa áp dụng cho thanh
 toán online, giao vận tự động, guest checkout hay tích điểm.
@@ -20,8 +27,10 @@ toán là hai trường riêng, không gộp:
 - `status`: trạng thái xử lý đơn.
 - `paymentStatus`: `UNPAID` | `PAID_ON_DELIVERY` | `REFUNDED`.
   COD nghĩa là chưa thu tiền khi tạo đơn; chỉ khi giao thành công và thu
-  tiền mới chuyển sang `PAID_ON_DELIVERY`. Hoàn tiền COD là thao tác ghi
-  nhận thủ công ngoài hệ thống, không có tích hợp cổng thanh toán.
+  tiền mới chuyển sang `PAID_ON_DELIVERY`. `REFUNDED` trong MVP chỉ là
+  **ghi nhận trạng thái sau khi đã hoàn tiền thủ công ngoài hệ thống**,
+  không phải tích hợp hoàn tiền, không tự chuyển tiền, không gọi cổng
+  thanh toán. Xem phạm vi MVP ở mục 1.4.
 
 ### 1.2 Các trạng thái và chuyển đổi hợp lệ
 
@@ -42,7 +51,8 @@ RETURNED -> REFUNDED (chỉ khi đã thu tiền trước đó)
 | SHIPPING | DELIVERED | Admin | Chuyển giữ kho thành đã bán, `paymentStatus = PAID_ON_DELIVERY` |
 | DELIVERED | COMPLETED | Khách (xác nhận đã nhận) hoặc admin | Không đổi kho |
 | PENDING, CONFIRMED | CANCELLED | Khách (đơn của mình) hoặc admin | Giải phóng giữ kho đúng một lần, hoàn coupon nếu đủ điều kiện (mục 4) |
-| PROCESSING trở đi | CANCELLED | Không cho khách; admin chỉ được hủy trước SHIPPING với lý do | Giải phóng giữ kho đúng một lần |
+| PROCESSING | CANCELLED | Chỉ admin, trước khi sang SHIPPING, kèm lý do | Giải phóng giữ kho đúng một lần, không tự hoàn coupon |
+| SHIPPING | CANCELLED | Không được chuyển trực tiếp | Muốn hủy sau khi đã giao vận phải đi qua DELIVERY_FAILED rồi mới CANCELLED, xem mục 1.4 |
 | SHIPPING | DELIVERY_FAILED | Admin | Giữ nguyên giữ kho, ghi lý do |
 | DELIVERY_FAILED | SHIPPING | Admin | Giao lại, **không giữ kho lần hai** |
 | DELIVERY_FAILED | CANCELLED | Admin | Giải phóng giữ kho đúng một lần |
@@ -78,6 +88,30 @@ Quy tắc chung:
   Trả một phần là tính năng riêng, vì nó kéo theo chia tiền, chia coupon
   và chia kho phức tạp.
 
+### 1.4 Phạm vi MVP cho giao thất bại, trả hàng và hoàn tiền — nói rõ, không giả vờ
+
+MVP hỗ trợ:
+
+- Giao thất bại: trạng thái `DELIVERY_FAILED` kèm lý do do admin nhập,
+  sau đó admin chọn giao lại (`SHIPPING`, không giữ kho lần hai) hoặc
+  hủy (`CANCELLED`, giải phóng kho đúng một lần). Không có tích hợp
+  hãng vận chuyển, không tự cập nhật trạng thái từ đơn vị giao vận.
+- Trả hàng: khách yêu cầu toàn đơn trong 7 ngày kể từ `DELIVERED`,
+  admin duyệt/từ chối, và chỉ nhập lại kho khi admin xác nhận riêng
+  hàng còn bán được (mục 2.4). Không có trả một phần, không tự nhập
+  kho, không tự tính tiền trả lại theo từng dòng.
+- Hoàn tiền: **không có tích hợp hoàn tiền trong MVP**. `REFUNDED`
+  chỉ được admin đặt sau khi đã hoàn tiền thủ công ngoài hệ thống
+  (ví dụ chuyển khoản tay) và chỉ khi `paymentStatus` trước đó là
+  `PAID_ON_DELIVERY`. Hệ thống không chuyển tiền, không gọi ngân hàng
+  hay cổng thanh toán, và không được mô tả trong giao diện/tài liệu
+  demo như “đã hoàn tiền tự động”. Nếu cần hoàn tiền tự động, đó là
+  quyết định và tích hợp riêng sau, kèm đối soát thanh toán.
+
+Ngoài MVP (chưa làm, chưa tuyên bố có): tích hợp hãng vận chuyển,
+theo dõi vận đơn tự động, trả hàng một phần, hoàn tiền tự động,
+đổi hàng, và tự động hoàn thành đơn sau giao.
+
 ## 2. Giữ kho, thời hạn giữ kho, giải phóng và bán
 
 ### 2.1 Mô hình dữ liệu tồn kho (đề xuất)
@@ -110,28 +144,76 @@ Báo giá (quote) **không giữ kho**. Quote chỉ kiểm tra tồn kho tại t
 lúc tạo đơn. Nếu không phân biệt hai bước này, quote sẽ khóa kho vô
 hạn cho những giỏ hàng không bao giờ thanh toán.
 
-### 2.3 Thời hạn giữ kho cho COD
+Giao hàng thành công chuyển giữ sang đã bán đúng một lần: chuyển đổi
+SHIPPING → DELIVERED phải chạy trong một transaction gồm đổi trạng
+thái, trừ cả `quantity` và `reserved`, đặt
+`paymentStatus = PAID_ON_DELIVERY`, và ghi InventoryMovement SALE với
+key `order:{orderId}:sale`. Điều kiện transaction gắn với
+`status = SHIPPING`. Gửi lại yêu cầu DELIVERED khi đơn đã DELIVERED
+là no-op trả về đơn hiện tại, không ghi SALE lần hai; nếu movement
+bị ghi trùng, unique index trên key sẽ chặn. Ngược lại, không được
+trừ `quantity` ở bước SHIPPING, vì lúc đó hàng chưa được xác nhận
+đã giao và thu tiền.
+
+### 2.3 Thời hạn giữ kho cho COD — bắt đầu khi nào, hết hạn xử lý ra sao
 
 Đề xuất:
 
-- Đơn PENDING có `reservationExpiresAt = createdAt + 48 giờ`.
+- Thời hạn giữ bắt đầu **tại thời điểm đơn được tạo thành công trong
+  transaction**, tức là `createdAt` của đơn sau khi commit, không phải
+  lúc tạo giỏ, lúc báo giá, lúc admin mở đơn hay lúc job chạy.
+  Trong cùng transaction tạo đơn, server đặt
+  `reservationExpiresAt = createdAt + 48 giờ` và giữ kho. Quote không
+  tạo thời hạn giữ, vì quote không giữ kho (mục 2.2).
 - Hết hạn mà vẫn PENDING thì đơn chuyển sang CANCELLED với lý do
   `RESERVATION_EXPIRED` và giải phóng giữ kho đúng một lần.
 - Từ CONFIRMED trở đi, giữ kho không hết hạn, vì cửa hàng đã cam kết
   xử lý đơn. Việc giữ kho dài ở các trạng thái sau là quyết định kinh
   doanh của admin, không phải timeout tự động.
-- Cơ chế hết hạn: một job dọn dẹp định kỳ ở server (chạy khi server đang
-  chạy, quét đơn PENDING đã quá hạn) **cộng với** kiểm tra lười khi đọc
-  đơn: nếu đơn đã quá hạn mà job chưa chạy tới, lần đọc/truy vấn tiếp
-  theo vẫn phải thấy đơn ở trạng thái đã hết hạn sau khi job xử lý, và
-  không cho chuyển PENDING quá hạn sang CONFIRMED. Job dọn dẹp phải dùng
-  cùng cơ chế chống trùng ở mục 3 để chạy nhiều lần cũng an toàn.
+- Đơn PENDING đã hết hạn **không được hồi sinh**: admin không thể
+  chuyển nó sang CONFIRMED để “cứu” đơn. Khách muốn mua lại phải tạo
+  đơn mới với Idempotency-Key mới; kho và coupon được tính lại từ đầu.
+
+Cơ chế hết hạn và các trường hợp worker gián đoạn/lặp:
+
+- Job dọn dẹp định kỳ ở server, ví dụ mỗi 15 phút (cấu hình, không
+  hard-code sâu), quét đơn thỏa mãn đồng thời: `status = PENDING`
+  và `reservationExpiresAt <= now`.
+- Mỗi đơn hết hạn được xử lý trong **một transaction riêng** gồm:
+  chuyển trạng thái PENDING → CANCELLED (lý do `RESERVATION_EXPIRED`),
+  giải phóng `reserved`, ghi InventoryMovement RELEASE với key
+  `order:{orderId}:release`, và hoàn coupon nếu đủ điều kiện (mục 4.2).
+  Điều kiện của transaction phải gắn với trạng thái: chỉ xử lý khi
+  đơn vẫn còn PENDING tại thời điểm transaction chạy.
+- Worker bị gián đoạn trước khi commit: transaction rollback toàn bộ,
+  đơn vẫn PENDING, kho vẫn giữ, job lần sau quét lại và xử lý bình
+  thường. Không có trạng thái dở dang.
+- Worker bị gián đoạn sau khi commit nhưng trước khi trả kết quả:
+  đơn đã CANCELLED và kho đã giải phóng; lần chạy sau không tìm thấy
+  đơn PENDING nữa nên không xử lý lại.
+- Hai worker/job chạy trùng nhau: worker đầu tiên commit thành công
+  sẽ đổi trạng thái sang CANCELLED; worker thứ hai không còn thỏa
+  điều kiện `status = PENDING` nên bỏ qua. Nếu cả hai cùng ghi
+  movement, unique index trên `idempotencyKey` của movement sẽ chặn
+  lần ghi thứ hai. Vì vậy giải phóng chỉ xảy ra đúng một lần ngay cả
+  khi job chạy lặp hoặc chạy song song.
+- Job chưa chạy tới (server tắt, job trễ): đơn vẫn hiển thị PENDING
+  trong database cho tới khi job chạy, nhưng về mặt nghiệp vụ nó đã
+  hết hạn. Để không tạo kẽ hở, mọi yêu cầu chuyển PENDING quá hạn
+  sang CONFIRMED đều bị chặn với `409 RESERVATION_EXPIRED`, cho tới
+  khi job vật chất hóa việc hủy. API đọc đơn không tự đổi trạng thái
+  trong lúc đọc (tránh side-effect ẩn trong GET); việc hủy vẫn do job
+  thực hiện và ghi lịch sử đầy đủ.
+- Job dọn dẹp không được dùng để hủy đơn CONFIRMED trở đi, không được
+  tự hoàn coupon ngoài quy tắc mục 4.2, và phải ghi log an toàn
+  (order id, lý do, không ghi PII không cần thiết).
 
 Đánh đổi của 48 giờ: đủ dài cho khách COD nghe điện thoại/xác nhận,
 đủ ngắn để không khóa kho quá lâu. 24 giờ có thể làm mất đơn COD hợp
 lệ; 72 giờ trở lên làm tăng nguy cơ hết hàng ảo cho khách khác.
 Con số này là cấu hình, không hard-code sâu trong nhiều nơi, và có thể
-đổi sau khi duyệt mà không đổi model.
+đổi sau khi duyệt mà không đổi model — nhưng đổi cấu hình chỉ ảnh
+hưởng đơn tạo mới sau đó, không kéo dài thời hạn của đơn đã tạo.
 
 ### 2.4 Nhập lại kho khi trả hàng
 
@@ -201,9 +283,11 @@ Coupon lưu ở server, client chỉ gửi mã, không gửi mức giảm:
   là tính năng riêng sau, vì nó kéo theo kiểm tra từng dòng và chia
   giảm giá phức tạp.
 
-Công thức do server tính, không tin client:
+Công thức do server tính, không tin client. Thứ tự tính đầy đủ xem
+mục 4.3 (subtotal → discount → shipping → total):
 
-- `PERCENT`: `discount = min(subtotal * value / 100, maxDiscount)`.
+- `PERCENT`: `discount = min(floor(subtotal * value / 100), maxDiscount,
+  subtotal)`, tính bằng số nguyên, không dùng số thập phân.
 - `FIXED`: `discount = min(value, subtotal)`.
 - Tổng tiền không bao giờ âm; `discount <= subtotal`.
 - **Một đơn chỉ dùng một mã.** Không cộng dồn nhiều mã ở Phase đầu.
@@ -227,29 +311,113 @@ Công thức do server tính, không tin client:
 - Hoàn coupon khi hủy: chỉ hoàn khi hủy từ PENDING/CONFIRMED, trong
   cùng transaction hủy đơn + giải phóng kho. Khi đó `usedCount - 1`
   và `CouponRedemption` chuyển sang `VOIDED` (không xóa, để đối soát).
-  Hủy từ các trạng thái sau, giao thất bại rồi hủy, hoặc trả hàng:
-  **không tự hoàn coupon**, vì cửa hàng đã tốn chi phí xử lý/vận chuyển.
-  Hoàn trong các trường hợp này là quyết định thủ công của admin.
+  Điều kiện hoàn gắn với trạng thái redemption: chỉ chuyển
+  `USED → VOIDED` mới được trừ `usedCount`. Hủy lặp (đơn đã CANCELLED,
+  redemption đã VOIDED, hoặc job hết hạn chạy lại) là no-op và không
+  trừ thêm lần nào. Hủy từ các trạng thái sau, giao thất bại rồi hủy,
+  hoặc trả hàng: **không tự hoàn coupon**, vì cửa hàng đã tốn chi phí
+  xử lý/vận chuyển. Hoàn trong các trường hợp này là quyết định thủ
+  công của admin, phải ghi lý do và không được tự động hóa âm thầm.
 - Mã hết hạn/hết lượt/không đủ đơn tối thiểu: trả lỗi coupon riêng,
   không gộp thành lỗi chung, để frontend hiển thị đúng lý do.
+
+### 4.3 Thứ tự tính tiền và phí vận chuyển — backend tính, quote và đơn dùng chung một quy tắc
+
+Tất cả giá sản phẩm, giảm giá và phí vận chuyển đều do backend tính.
+Client chỉ gửi items (product + SKU + số lượng), mã coupon (nếu có)
+và địa chỉ giao hàng. Giá, mức giảm hay phí vận chuyển do client gửi
+lên (nếu có) đều bị bỏ qua, không dùng để tính tiền và không dùng
+để đối chiếu làm thay đổi tổng tiền.
+
+Thứ tự tính, áp dụng giống nhau cho quote và tạo đơn:
+
+1. **Subtotal**: tổng của từng dòng `effectivePrice × quantity`, trong
+   đó `effectivePrice` theo ADR-4 (giá riêng của biến thể thắng, sale
+   không cộng dồn). Tất cả là số nguyên VND.
+2. **Discount**: nếu có coupon hợp lệ, tính theo mục 4.1. Với loại
+   PERCENT, dùng phép chia nguyên làm tròn xuống:
+   `floor(subtotal × value / 100)`, sau đó chặn bởi `maxDiscount`
+   và bởi `subtotal`. Không dùng số thập phân, không làm tròn lên,
+   không làm tròn “một nửa lên”, vì VND không có đơn vị nhỏ hơn 1
+   đồng và quy tắc phải tái lập được đúng một kết quả duy nhất.
+   Không có coupon thì `discount = 0`.
+3. **Subtotal sau giảm**: `subtotalAfterDiscount = subtotal - discount`.
+4. **Shipping**: tính bằng cùng một hàm server
+   `calculateShipping(subtotalAfterDiscount, shippingConfig)` cho cả
+   quote và tạo đơn (xem cấu hình bên dưới). Phí vận chuyển không
+   tham gia kiểm tra `minOrderAmount` của coupon; điều kiện tối thiểu
+   của coupon chỉ xét trên `subtotal` ở bước 1.
+5. **Total**: `total = subtotalAfterDiscount + shipping`. Total không
+   bao giờ âm vì `discount <= subtotal` và `shipping >= 0`.
+
+Phản hồi quote và đơn đều phải trả về bảng phân tách đầy đủ:
+`subtotal`, `discount`, `shipping`, `total`, kèm mã coupon đã áp
+(nếu có) và từng dòng đã snapshot giá. Frontend chỉ hiển thị các số
+này, không tự tính lại tổng tiền để hiển thị thay thế.
+
+Cấu hình phí vận chuyển (server, không sửa frontend):
+
+- Biến môi trường server, validate bằng zod fail-fast như các biến
+  hiện có: `SHIPPING_FEE_VND` (số nguyên VND, `>= 0`, mặc định `0`)
+  và `SHIPPING_FREE_THRESHOLD_VND` (tùy chọn; nếu đặt và lớn hơn 0
+  thì đơn có `subtotalAfterDiscount >= threshold` được miễn phí).
+- Mặc định cho demo: `SHIPPING_FEE_VND = 0`, không đặt threshold,
+  nên `shipping = 0` cho mọi đơn. Đây là lựa chọn demo, không phải
+  quy tắc kinh doanh vĩnh viễn.
+- Quy tắc khi có cấu hình khác 0: nếu `subtotalAfterDiscount` đạt
+  ngưỡng miễn phí thì `shipping = 0`, ngược lại
+  `shipping = SHIPPING_FEE_VND`. Không có tính phí theo khu vực,
+  cân nặng hay hãng vận chuyển trong MVP.
+- Cách thay đổi mà không sửa frontend: sửa giá trị trong
+  `Server/.env` (hoặc biến môi trường của môi trường chạy) rồi khởi
+  động lại backend. Frontend không chứa hằng số phí, không hard-code
+  ngưỡng miễn phí, và không cần deploy lại khi đổi cấu hình này.
+  Tài liệu vận hành phải ghi rõ hai biến trên; không được hướng dẫn
+  sửa phí trong code frontend.
+- Quote chỉ là ước tính tại thời điểm báo giá. Nếu cấu hình phí thay
+  đổi giữa lúc quote và lúc tạo đơn, đơn sẽ dùng quy tắc và giá tại
+  thời điểm tạo đơn, và tổng tiền của đơn là con số có hiệu lực.
+  Frontend phải hiển thị tổng tiền cuối ở bước xác nhận đơn, không
+  được cam kết rằng tổng tiền ở quote sẽ không đổi khi cấu hình
+  server thay đổi. Trong điều kiện vận hành bình thường (cấu hình
+  không đổi giữa hai bước), quote và đơn cho cùng giỏ hàng phải ra
+  cùng một bảng tính.
 
 ## 5. Idempotency khi tạo đơn
 
 - Client **bắt buộc** gửi `Idempotency-Key` là UUID v4 khi tạo đơn,
   ưu tiên qua header `Idempotency-Key`, chấp nhận field `idempotencyKey`
-  trong body làm fallback. Thiếu key trả `400 IDEMPOTENCY_KEY_REQUIRED`.
-- Server có unique index `{ user, idempotencyKey }` trên Order.
-  Vì key gắn với user, user này không đọc được đơn của user khác qua key.
+  trong body làm fallback. Thiếu key hoặc key không đúng định dạng
+  UUID trả `400 IDEMPOTENCY_KEY_REQUIRED`.
+- Server có unique index `{ user: 1, idempotencyKey: 1 }` trên Order.
+  Key gắn với user: user khác dùng cùng key vẫn được coi là key mới
+  của riêng user đó, và không bao giờ đọc được đơn của user khác qua
+  key. Kiểm tra quyền sở hữu vẫn áp dụng như mọi API đơn hàng khác.
+- “Cùng payload” được định nghĩa bằng fingerprint nghiệp vụ, không
+  phải so sánh chuỗi JSON thô: danh sách items đã sắp xếp theo
+  `(productId, sku)` với số lượng từng dòng, địa chỉ giao hàng đã
+  chuẩn hóa (trim, không phân biệt khoảng trắng thừa), mã coupon đã
+  chuẩn hóa chữ hoa (hoặc null), và phương thức COD. Phí vận chuyển
+  và tổng tiền **không** nằm trong fingerprint, vì chúng do server
+  tính lại; nếu cấu hình phí thay đổi, đơn cũ vẫn được trả về nguyên
+  trạng, không định giá lại.
 - Hành vi:
   - Key chưa từng dùng: tạo đơn trong transaction (giữ kho, tiêu thụ
-    coupon nếu có, ghi lịch sử). Trả `201` kèm đơn.
-  - Key đã dùng, cùng user, cùng payload nghiệp vụ (cùng items, địa
-    chỉ, coupon, phương thức): trả `200` kèm đơn cũ, **không tạo đơn
-    mới, không giữ kho lần hai, không tiêu thụ coupon lần hai**.
-  - Key đã dùng, cùng user, nhưng payload khác: trả `409
+    coupon nếu có, ghi lịch sử, tính tiền theo mục 4.3). Trả `201`
+    kèm đơn và bảng tính.
+  - Key đã dùng, cùng user, cùng fingerprint: trả `200` kèm đơn cũ
+    và bảng tính gốc, **không tạo đơn mới, không giữ kho lần hai,
+    không tiêu thụ coupon lần hai, không tính lại giá**.
+  - Key đã dùng, cùng user, nhưng fingerprint khác: trả `409
     IDEMPOTENCY_KEY_REUSED`, không tạo đơn, không thay đổi đơn cũ.
-    Frontend/mobile phải hiểu đây là lỗi lập trình/tái sử dụng key sai,
-    không tự retry với cùng key cho một đơn khác.
+    Frontend/mobile phải hiểu đây là lỗi tái sử dụng key sai,
+    không tự retry với cùng key cho một đơn khác; muốn đặt đơn khác
+    phải sinh key mới.
+- Xử lý race khi hai request cùng key gửi đồng thời: cả hai đều kiểm
+  tra trước, nhưng chỉ một transaction insert thành công nhờ unique
+  index; request thua sẽ bắt lỗi trùng key, đọc lại đơn đã tạo, rồi
+  so fingerprint để trả `200` (cùng payload) hoặc `409` (khác
+  payload). Không được biến lỗi unique index thành lỗi 500 chung.
 - Client phải giữ nguyên key trong suốt quá trình retry của một lần
   đặt hàng (kể cả khi mất mạng rồi gửi lại). Tạo key mới cho mỗi lần
   retry sẽ phá vỡ toàn bộ cơ chế này — đây là lỗi phổ biến nhất và
@@ -273,9 +441,38 @@ Công thức do server tính, không tin client:
   `rs.initiate()` một lần, hoặc dùng MongoDB Atlas (mặc định là
   replica set). Tài liệu chạy demo phải ghi rõ bước này; không được
   ghi “chỉ cần MongoDB đang chạy” chung chung cho Phase đơn hàng.
-- Test tích hợp: dùng MongoMemoryServer với replica set (cấu hình
-  riêng cho test), không dùng standalone in-memory cho test đơn hàng,
-  vì test đó sẽ không chứng minh được transaction thật.
+- Phạm vi transaction cho tạo đơn (một transaction duy nhất, không
+  tách nhỏ): kiểm tra idempotency, giữ kho từng dòng, tính tiền
+  (mục 4.3), tạo Order + OrderItems snapshot + lịch sử PENDING,
+  ghi InventoryMovement RESERVE, và tạo CouponRedemption nếu có.
+  Tương tự, hủy/hết hạn, giao thành công và hoàn coupon (nếu đủ điều
+  kiện) mỗi sự kiện cũng là một transaction riêng của chính sự kiện
+  đó, không gộp nhiều sự kiện vào một transaction.
+- Retry transaction: khi gặp lỗi transient của MongoDB
+  (`TransientTransactionError`, lỗi commit không xác định), retry
+  toàn bộ transaction tối đa 3 lần, mỗi lần chạy lại từ đầu với cùng
+  Idempotency-Key và cùng movement key. Vì các ghi đã commit (nếu có)
+  sẽ bị unique index chặn khi chạy lại, retry không tạo trùng đơn,
+  không giữ kho lần hai và không tiêu thụ coupon lần hai. Nếu lỗi
+  không phải transient (ví dụ hết hàng, coupon hết lượt, payload sai),
+  không retry transaction mà trả lỗi nghiệp vụ ngay. Nếu transaction
+  abort, client có thể retry với cùng key; đơn chưa từng được tạo
+  trong lần abort đó nên lần retry hợp lệ sẽ tạo đơn đầu tiên.
+- Kiểm thử local với replica set (hướng dẫn cho PR 2/3/4, chưa chạy):
+  1. Khởi động MongoDB local dạng replica set một node, ví dụ
+     `mongod --replSet rs0 --dbpath <thư mục dữ liệu>`, rồi vào
+     `mongosh` chạy `rs.initiate()` một lần.
+  2. Đặt `MONGO_URI` dạng có `replicaSet`, ví dụ
+     `mongodb://127.0.0.1:27017/cutishop1?replicaSet=rs0`
+     (Atlas thì dùng chuỗi Atlas cấp, vốn đã là replica set).
+  3. Kiểm tra nhanh: tạo đơn thật trên database test riêng và xác
+     nhận transaction commit; sau đó thử chạy cùng code với MongoDB
+     standalone và xác nhận nó fail rõ ràng thay vì âm thầm ghi không
+     có transaction.
+  4. Test tích hợp: cấu hình MongoMemoryServer ở chế độ replica set
+     riêng cho test đơn hàng (thay đổi helper test trong PR đó, chưa
+     làm ở PR này), không dùng standalone in-memory cho test đơn
+     hàng, vì test đó sẽ không chứng minh được transaction thật.
 
 ### 6.2 Thuật toán tạo đơn trong transaction (tóm tắt)
 
@@ -294,8 +491,9 @@ Công thức do server tính, không tin client:
      sách SKU thiếu. Không tạo đơn một phần.
 4. Tính lại toàn bộ tiền từ giá hiệu lực tại thời điểm tạo đơn
    (theo ADR-4: giá riêng của biến thể thắng, sale không cộng dồn),
-   áp coupon theo mục 4, tính tổng cuối. Giá client gửi lên chỉ để
-   đối chiếu hiển thị, không dùng để tính tiền.
+   áp coupon và phí vận chuyển theo đúng thứ tự mục 4.3. Giá, mức
+   giảm hay phí vận chuyển client gửi lên đều bị bỏ qua, không dùng
+   để tính tiền.
 5. Tạo Order + OrderItems snapshot + lịch sử PENDING + movement
    RESERVE + CouponRedemption (nếu có) trong cùng transaction.
 6. Commit. Nếu gặp lỗi transient của transaction, retry toàn bộ
@@ -366,15 +564,16 @@ và đơn vẫn đọc được ngay cả khi sản phẩm đã ngừng bán.
 | Thời hạn giữ PENDING | 48 giờ | 24 giờ: ít khóa kho hơn nhưng dễ mất đơn COD; 72 giờ: ngược lại |
 | Hoàn thành sau giao | Thủ công, không tự động | Tự động sau N ngày: tiện nhưng khóa quyền trả hàng âm thầm |
 | Trả hàng | Toàn đơn, 7 ngày, nhập kho thủ công | Trả một phần: cần chia tiền/coupon/kho, làm sau |
-| Phí vận chuyển | Chưa chốt trong ADR này — cần quyết trước PR quote | 0 đồng cho demo: đơn giản nhưng không giống thực tế; phí cố định: cần thêm cấu hình và quy tắc miễn phí |
+| Phí vận chuyển | **Đã chốt ở bản sửa lần 2 (mục 4.3)**: backend tính theo cấu hình `SHIPPING_FEE_VND` và `SHIPPING_FREE_THRESHOLD_VND`, mặc định demo 0 đồng, đổi qua biến môi trường server không cần sửa frontend | Phí theo khu vực/cân nặng/hãng vận chuyển: làm riêng sau, không thuộc MVP |
 | Guest checkout | Không làm ở Phase 2, bắt buộc đăng nhập | Guest: tiện hơn nhưng tạo đơn mồ côi và khó đối soát |
 | Phạm vi coupon | Toàn đơn, 1 mã/đơn | Theo danh mục/sản phẩm, cộng dồn: phức tạp hơn nhiều |
 | Job hết hạn giữ kho | Job định kỳ trong server + kiểm tra lười | Job ngoài (cron hệ thống): cần thêm hạ tầng triển khai |
 
-Các quyết định trên, đặc biệt là thời hạn giữ kho, phí vận chuyển và
-việc không tự hoàn thành đơn, cần được duyệt cùng ADR này trước khi
-viết code PR 2/3/4. Thay đổi các quyết định sau khi đã có đơn thật sẽ
-cần migration và thông báo cho đơn đang chờ xử lý.
+Các quyết định trên, đặc biệt là thời hạn giữ kho, phí vận chuyển
+(đã chốt mặc định demo ở bản sửa lần 2) và việc không tự hoàn thành
+đơn, cần được duyệt cùng ADR này trước khi viết code PR 2/3/4. Thay
+đổi các quyết định sau khi đã có đơn thật sẽ cần migration và thông
+báo cho đơn đang chờ xử lý.
 
 ## 9. Thiết kế song song ở mức tài liệu (chưa triển khai)
 
@@ -419,16 +618,58 @@ module giả và không được tính là tính năng đã hoàn thành.
   không log nội dung chứa PII hay key. Chưa kích hoạt dịch vụ tính
   phí khi chưa được duyệt riêng.
 
-## 10. Checklist nghiệm thu cho PR 2/3/4 (sau khi ADR được duyệt)
+## 10. Checklist kiểm thử cho PR 2/3/4 (sau khi ADR được duyệt)
 
-- [ ] Tạo đơn hai lần cùng Idempotency-Key chỉ tạo một đơn.
-- [ ] Hai đơn đồng thời không bán vượt tồn, tồn kho không âm.
-- [ ] Coupon đồng thời không vượt giới hạn tổng và giới hạn/người.
-- [ ] Hủy đơn hai lần chỉ giải phóng kho và hoàn coupon một lần.
-- [ ] Chuyển trạng thái sai trả 409, user không xem/sửa được đơn người khác.
-- [ ] Đơn PENDING quá 48 giờ hết hạn và giải phóng kho đúng một lần.
-- [ ] Sửa/xóa SKU đang có đơn chưa kết thúc bị chặn 409.
+Trạng thái của toàn bộ checklist này: **CHƯA VIẾT, CHƯA CHẠY, KHÔNG
+CÓ MỤC NÀO ĐƯỢC GHI LÀ PASS**. Các mục dưới đây là yêu cầu kiểm thử
+phải có trong PR 2/3/4, không phải bằng chứng đã kiểm chứng. Khi báo
+cáo PR sau, mỗi mục phải kèm lệnh đã chạy và kết quả thật, phân biệt
+rõ PASS / FAIL / BLOCKED / NOT RUN, và không được ghi test tích hợp
+là PASS nếu MongoDB in-memory tải thất bại hay job CI chưa chạy.
+
+Kiểm thử bắt buộc theo yêu cầu duyệt ADR lần 2:
+
+- [ ] **Đặt đơn trùng (idempotency):** gửi tạo đơn hai lần cùng user,
+  cùng Idempotency-Key và cùng fingerprint → chỉ tạo một đơn, lần hai
+  trả `200` kèm đơn cũ, kho và coupon không thay đổi lần hai.
+- [ ] **Cùng key nhưng payload khác:** gửi cùng key với giỏ hàng khác
+  → trả `409 IDEMPOTENCY_KEY_REUSED`, không tạo đơn mới, đơn cũ
+  không đổi.
+- [ ] **Client sửa giá / sửa phí / sửa giảm giá:** gửi tổng tiền, mức
+  giảm và phí vận chuyển sai từ client → server vẫn tính đúng theo
+  mục 4.3, tổng tiền trả về không theo số client gửi.
+- [ ] **Hết hạn giữ kho:** tạo đơn PENDING, tua thời gian quá
+  `reservationExpiresAt` (bằng cấu hình test hoặc dữ liệu test, không
+  chờ 48 giờ thật) → job hết hạn chuyển đơn sang CANCELLED, giải
+  phóng kho đúng một lần; thử chuyển đơn đã hết hạn sang CONFIRMED
+  → trả `409 RESERVATION_EXPIRED`; job chạy lặp lần hai không giải
+  phóng thêm.
+- [ ] **Hai khách tranh sản phẩm cuối:** hai đơn đồng thời cho biến
+  thể chỉ còn đủ cho một đơn → một đơn thành công, một đơn trả
+  `409 INSUFFICIENT_STOCK`, tồn kho không âm, không có đơn một phần.
+- [ ] **Coupon hết lượt:** hai đơn đồng thời dùng coupon chỉ còn
+  1 lượt → một đơn thành công, một đơn lỗi coupon, `usedCount`
+  không vượt giới hạn tổng và giới hạn/người.
+- [ ] **Hủy đơn lặp:** hủy cùng một đơn hai lần (kể cả client retry
+  và job hết hạn cùng chạy) → kho chỉ giải phóng một lần, coupon
+  (nếu đủ điều kiện hoàn) chỉ hoàn một lần, lần hai là no-op.
+- [ ] **Giao hàng lặp:** gửi chuyển SHIPPING → DELIVERED hai lần →
+  chỉ ghi một movement SALE, `quantity` và `reserved` chỉ trừ một
+  lần, `paymentStatus` vẫn là `PAID_ON_DELIVERY`, lần hai trả về
+  đơn hiện tại.
+- [ ] **Người dùng xem đơn của người khác:** user A gọi chi tiết đơn
+  của user B → trả 404 gộp như không tồn tại, không tiết lộ thông
+  tin đơn; user thường gọi API admin → 401/403 theo đúng phân quyền.
+
+Kiểm thử bổ sung vẫn giữ từ bản ADR đầu:
+
+- [ ] Chuyển trạng thái sai trả 409, không cho chuyển ngược trạng thái.
+- [ ] Sửa/xóa SKU đang có đơn chưa kết thúc bị chặn 409; tái sử dụng
+  SKU từng có trong OrderItem bị chặn.
+- [ ] Transaction abort giữa chừng: không có đơn mồ côi, không có giữ
+  kho mồ côi, không có redemption mồ côi.
 - [ ] Test tích hợp chạy trên MongoDB replica set (in-memory), không
-  phải standalone, cho các trường hợp trên.
+  phải standalone, cho các trường hợp trên; thử trên standalone phải
+  fail rõ ràng thay vì âm thầm ghi không có transaction.
 - [ ] Không có thay đổi nào ở PR này merge, deploy hay xóa dữ liệu
   khi chưa được duyệt riêng.
