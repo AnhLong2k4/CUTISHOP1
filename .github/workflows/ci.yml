@@ -1,0 +1,62 @@
+# CutiShop — CI thật cho monorepo npm workspaces.
+#
+# Chạy trên mọi pull request và khi push lên main / feat/** / fix/**.
+# Thứ tự cố tình là test TRƯỚC build: build server tạo ra
+# Server/dist/test/*.test.js, và nếu chạy test sau build thì Vitest
+# sẽ nhặt cả các bản sao đã biên dịch đó (xem docs/PHASE_1_REPORT.md
+# và docs/SECURITY_REMEDIATION_FOLLOWUP.md).
+#
+# Job audit chạy riêng và chưa chặn merge (continue-on-error):
+# npm audit từng bị proxy sandbox chặn và từng gắn cờ các advisory
+# chỉ thuộc dev dependency; việc chặn merge vì audit sẽ được quyết
+# riêng sau khi có output audit sạch trên GitHub Actions.
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**', 'fix/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install (lockfile)
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm run test
+      - name: Build
+        run: npm run build
+
+  audit:
+    name: Security audit (report only)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install (lockfile)
+        run: npm ci
+      - name: npm audit
+        run: npm audit --omit=dev || npm audit
