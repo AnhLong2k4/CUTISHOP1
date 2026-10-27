@@ -377,6 +377,26 @@ export class ApiClient {
     );
   }
 
+  async adminGetCoupon(id: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(`/admin/coupons/${encodeURIComponent(id)}`);
+  }
+
+  async adminUpdateCoupon(
+    id: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(`/admin/coupons/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async adminDeleteCoupon(id: string): Promise<{ id: string }> {
+    return this.request<{ id: string }>(`/admin/coupons/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
   // ---------- admin catalog ----------
 
   async adminGetProducts(query: ProductQuery = {}): Promise<Page<Product>> {

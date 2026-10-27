@@ -31,6 +31,20 @@ export function Layout() {
             >
               Sản phẩm
             </NavLink>
+            <NavLink
+              to="/cart"
+              className={({ isActive }) => (isActive ? 'text-brand-600' : 'text-neutral-600')}
+            >
+              Giỏ hàng
+            </NavLink>
+            {status === 'authenticated' && (
+              <NavLink
+                to="/orders"
+                className={({ isActive }) => (isActive ? 'text-brand-600' : 'text-neutral-600')}
+              >
+                Đơn hàng
+              </NavLink>
+            )}
           </nav>
           <form onSubmit={submitSearch} className="order-3 flex w-full gap-2 sm:order-none sm:w-auto sm:flex-1">
             <label className="sr-only" htmlFor="site-search">Tìm kiếm sản phẩm</label>
@@ -78,7 +92,7 @@ export function Layout() {
       </main>
       <footer className="border-t border-neutral-200 bg-neutral-50">
         <div className="mx-auto max-w-6xl px-4 py-6 text-center text-xs text-neutral-500">
-          CUTISHOP1 — Đồ án tốt nghiệp CNTT. Thanh toán COD và giỏ hàng sẽ có ở Phase 2.
+          CUTISHOP1 — Đồ án tốt nghiệp CNTT. Thanh toán khi nhận hàng (COD); giá, mã giảm giá và tồn kho do máy chủ kiểm tra.
         </div>
       </footer>
     </div>

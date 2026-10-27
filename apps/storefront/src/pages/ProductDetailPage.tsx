@@ -1,16 +1,40 @@
 import { formatVND, type Product } from '@cutishop1/contracts';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { ErrorState, LoadingState } from '../components/States';
 import { api } from '../lib/api';
 
 export function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { status } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
   const [selectedSku, setSelectedSku] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [cartMessage, setCartMessage] = useState<string | null>(null);
+  const [cartBusy, setCartBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+
+  const addToCart = async () => {
+    if (!product || !selectedVariant) return;
+    if (status !== 'authenticated') {
+      navigate('/login');
+      return;
+    }
+    setCartBusy(true);
+    setCartMessage(null);
+    try {
+      await api.addCartItem({ productId: product.id, sku: selectedVariant.sku, quantity });
+      setCartMessage('Đã thêm vào giỏ hàng.');
+    } catch {
+      setCartMessage('Không thêm được vào giỏ hàng. Vui lòng thử lại.');
+    } finally {
+      setCartBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -128,7 +152,7 @@ export function ProductDetailPage() {
                   </span>
                   <span className="block text-xs text-neutral-500">
                     {formatVND(variant.effectivePrice)} ·{' '}
-                    {variant.inStock ? `Còn ${variant.quantity}` : 'Hết hàng'}
+                    {variant.inStock ? `Còn ${variant.available ?? variant.quantity} có thể đặt` : 'Hết hàng'}
                   </span>
                 </button>
               );
@@ -143,7 +167,7 @@ export function ProductDetailPage() {
             <dt className="text-neutral-500">Tình trạng</dt>
             <dd className="font-medium">
               {selectedVariant.inStock
-                ? `Còn hàng (${selectedVariant.quantity} sản phẩm)`
+                ? `Còn hàng (${selectedVariant.available ?? selectedVariant.quantity} có thể đặt)`
                 : 'Hết hàng'}
             </dd>
             <dt className="text-neutral-500">Tổng tồn kho</dt>
@@ -151,9 +175,38 @@ export function ProductDetailPage() {
           </dl>
         )}
 
+        {selectedVariant?.inStock && (
+          <div className="flex flex-wrap items-center gap-3">
+            <label htmlFor="detail-qty" className="text-sm font-medium">Số lượng</label>
+            <input
+              id="detail-qty"
+              type="number"
+              min={1}
+              max={selectedVariant.available ?? selectedVariant.quantity}
+              value={quantity}
+              onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
+              className="w-20 rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              disabled={cartBusy}
+              onClick={() => void addToCart()}
+              className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+            >
+              Thêm vào giỏ
+            </button>
+            {cartMessage && (
+              <span className="text-sm text-brand-700">
+                {cartMessage}{' '}
+                <Link to="/cart" className="font-medium underline">Xem giỏ hàng</Link>
+              </span>
+            )}
+          </div>
+        )}
+
         <p className="rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-800">
-          Giỏ hàng và đặt hàng (COD) sẽ mở ở Phase 2. Giá và tồn kho trên trang này là
-          dữ liệu thật từ hệ thống.
+          Giá và tồn kho trên trang này là dữ liệu thật từ hệ thống. Đặt hàng thanh toán
+          khi nhận hàng (COD); kho chỉ được giữ khi đơn được tạo thành công.
         </p>
 
         {product.description && (
