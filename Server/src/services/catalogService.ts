@@ -3,7 +3,9 @@ import { v2 as cloudinary } from 'cloudinary';
 import { isCloudinaryConfigured, loadEnv } from '../config/env.js';
 import { Brand, toPublicBrand, type BrandDoc } from '../models/Brand.js';
 import { Category, toPublicCategory, type CategoryDoc } from '../models/Category.js';
+import { Order } from '../models/Order.js';
 import { Product, toPublicProduct, type ProductDoc } from '../models/Product.js';
+import { NON_TERMINAL_STATUSES } from '../utils/orderStatus.js';
 import {
   buildProductFilter,
   buildProductSort,
@@ -269,6 +271,48 @@ export async function updateProduct(id: string, input: ProductInputData) {
   if (!doc) throw notFound('Không tìm thấy sản phẩm');
   await assertCatalogRefs(input);
   await assertSkusAvailable(input.variants, id);
+
+  // ADR section 7: never silently edit or delete a SKU that an
+  // unfinished order references, never drop a held quantity, and never
+  // reuse a SKU that already appears in any order of another product.
+  const existingBySku = new Map(doc.variants.map((v) => [v.sku, v]));
+  const newSkus = new Set(input.variants.map((v) => v.sku.trim()));
+  for (const existing of doc.variants) {
+    if (!newSkus.has(existing.sku)) {
+      const referenced = await Order.countDocuments({
+        'items.sku': existing.sku,
+        status: { $in: NON_TERMINAL_STATUSES },
+      });
+      if (referenced > 0) {
+        throw conflict(
+          `SKU ${existing.sku} đang được đơn hàng chưa kết thúc tham chiếu, không thể xóa biến thể`,
+          'SKU_IN_USE_BY_ORDER',
+        );
+      }
+    }
+  }
+  for (const variant of input.variants) {
+    const existing = existingBySku.get(variant.sku);
+    if (existing && variant.quantity < (existing.reserved || 0)) {
+      throw conflict(
+        `Tồn kho của SKU ${variant.sku} không thể giảm xuống dưới lượng đang giữ (${existing.reserved})`,
+        'QUANTITY_BELOW_RESERVED',
+      );
+    }
+    if (!existing) {
+      const reused = await Order.findOne({
+        'items.sku': variant.sku,
+        'items.productId': { $ne: doc._id },
+      }).select('_id');
+      if (reused) {
+        throw conflict(
+          `SKU ${variant.sku} đã từng xuất hiện trong đơn hàng của sản phẩm khác, không thể tái sử dụng`,
+          'SKU_REUSED_FROM_ORDER',
+        );
+      }
+    }
+  }
+
   if (input.title !== doc.title) {
     doc.slug = await uniqueSlug(slugify(input.title), Product, id);
   }
@@ -282,7 +326,13 @@ export async function updateProduct(id: string, input: ProductInputData) {
   doc.saleEndsAt = input.saleEndsAt ? new Date(input.saleEndsAt) : null;
   doc.images = input.images ?? doc.images;
   if (input.isActive !== undefined) doc.isActive = input.isActive;
-  doc.variants = input.variants as ProductDoc['variants'];
+  // Preserve the held quantity per SKU: the product form never edits
+  // `reserved` directly, and a wholesale variant replacement must not
+  // silently drop a hold.
+  doc.variants = input.variants.map((variant) => ({
+    ...variant,
+    reserved: existingBySku.get(variant.sku)?.reserved ?? 0,
+  })) as ProductDoc['variants'];
   await doc.save();
   await doc.populate(['category', 'brand']);
   return toPublicProduct(doc);

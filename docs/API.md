@@ -48,10 +48,66 @@ hạn 15 phút, dùng một lần. Email chứa liên kết
 | GET | /brands | Thương hiệu đang hiện, kèm `productCount`. |
 
 Mỗi sản phẩm trả kèm: `priceRange {min,max}`, `onSale`, `totalStock`,
-`inStock`, và từng biến thể có `effectivePrice`, `inStock`.
+`totalAvailable`, `inStock`, và từng biến thể có `effectivePrice`,
+`quantity`, `reserved`, `available`, `inStock` (inStock tính theo
+`available = quantity - reserved`, không phải theo quantity thô).
 Quy tắc giá: giá riêng của biến thể thắng; nếu không có, dùng giá
 khuyến mãi khi đang trong thời gian khuyến mãi hợp lệ; khuyến mãi
 không cộng dồn lên giá riêng của biến thể.
+
+## Giỏ hàng và báo giá — bắt buộc đăng nhập
+
+Giỏ hàng lưu theo user, không giữ kho. Báo giá (quote) chỉ tính toán,
+không giữ kho và không tiêu thụ coupon; kiểm tra quyết định chỉ xảy
+ra lúc tạo đơn. Giá, giảm giá và phí vận chuyển do server tính; các
+trường tiền do client gửi lên trong body tạo đơn bị loại bỏ.
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | /cart | Giỏ hàng của user hiện tại |
+| POST | /cart/items | Thêm dòng `{ productId, sku, quantity }`; cùng SKU thì cộng dồn |
+| PATCH | /cart/items | Đặt số lượng cho một dòng; `quantity = 0` thì xóa dòng |
+| DELETE | /cart/items | Xóa một dòng `{ productId, sku }` |
+| DELETE | /cart | Xóa toàn bộ giỏ hàng |
+| POST | /checkout/quote | Báo giá `{ items, couponCode? }` → `{ items, couponCode, subtotal, discount, subtotalAfterDiscount, shipping, total, canOrder }`. Thứ tự tính: subtotal → discount → shipping → total, số nguyên VND. |
+
+## Đơn hàng COD — bắt buộc đăng nhập, yêu cầu MongoDB replica set
+
+Tạo đơn bắt buộc header `Idempotency-Key` (UUID v4) hoặc field
+`idempotencyKey` trong body. Cùng user + cùng key + cùng payload thì
+trả 200 kèm đơn cũ; cùng key nhưng payload khác thì 409
+`IDEMPOTENCY_KEY_REUSED`. Tạo đơn chạy trong một MongoDB transaction
+(giữ kho + ghi InventoryMovement + tiêu thụ coupon nếu có); trên
+MongoDB standalone, tạo đơn fail rõ ràng 503
+`TRANSACTION_NOT_SUPPORTED`, không có đường lùi ghi không transaction.
+Giữ kho 48 giờ cho đơn PENDING (cấu hình `RESERVATION_HOLD_HOURS`);
+hết hạn thì đơn bị hủy và giải phóng kho đúng một lần.
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | /orders | Tạo đơn COD. Body: `{ items, shippingAddress { name, phone, address, note? }, couponCode? }` + Idempotency-Key. 201 đơn mới, 200 đơn cũ khi retry; 409 `INSUFFICIENT_STOCK`, `COUPON_*`, `IDEMPOTENCY_KEY_REUSED`; 400 `IDEMPOTENCY_KEY_REQUIRED` |
+| GET | /orders/my | Lịch sử đơn của chính user, phân trang, lọc `status` |
+| GET | /orders/:id | Chi tiết đơn của chính user. Đơn của user khác → 404 gộp, không tiết lộ |
+| POST | /orders/:id/cancel | Khách hủy đơn của mình (PENDING/CONFIRMED; PROCESSING chỉ admin hủy qua route admin) |
+| POST | /orders/:id/complete | Khách xác nhận hoàn thành đơn DELIVERED |
+| POST | /orders/:id/return-request | Khách yêu cầu trả toàn đơn trong 7 ngày kể từ DELIVERED |
+| GET | /admin/orders | Admin: danh sách đơn, lọc `status` |
+| GET | /admin/orders/:id | Admin: chi tiết đơn bất kỳ |
+| PATCH | /admin/orders/:id/status | Admin: chuyển trạng thái `{ status, reason?, restock? }`. `restock` chỉ có ý nghĩa khi chuyển sang RETURNED (nhập lại kho khi xác nhận còn bán được). Chuyển sai → 409 `ORDER_TRANSITION_INVALID` |
+
+## Quản trị coupon — /admin/coupons
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | /admin/coupons | Tạo mã `{ code, type: PERCENT\|FIXED, value, maxDiscount?, minOrderAmount?, startsAt?, endsAt?, isActive?, usageLimitTotal?, usageLimitPerUser? }`. PERCENT bắt buộc `maxDiscount` và `value` 1–100 |
+| GET | /admin/coupons | Danh sách mã, phân trang |
+| GET | /admin/coupons/:id | Chi tiết mã |
+| PATCH | /admin/coupons/:id | Cập nhật mã (các trường tùy chọn) |
+| DELETE | /admin/coupons/:id | Xóa mã chỉ khi chưa từng sử dụng; đã sử dụng → 409 `COUPON_IN_USE`, hãy vô hiệu hóa thay vì xóa |
+
+Quy tắc coupon trong đơn: một đơn một mã, toàn đơn, không cộng dồn;
+`minOrderAmount` xét trên subtotal trước giảm và trước phí; hoàn lượt
+chỉ khi hủy từ PENDING/CONFIRMED, đúng một lần (`USED → VOIDED`).
 
 ## Quản trị — /admin (bắt buộc Bearer + role admin; 401 chưa đăng nhập, 403 không phải admin)
 

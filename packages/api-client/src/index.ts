@@ -1,11 +1,17 @@
 import type {
   Brand,
+  Cart,
+  CartItemInput,
   Category,
+  Order,
+  OrderStatus,
   Page,
   Product,
   ProductInput,
   ProductQuery,
   PublicUser,
+  Quote,
+  ShippingAddress,
 } from '@cutishop1/contracts';
 
 export class ApiError extends Error {
@@ -233,6 +239,142 @@ export class ApiClient {
 
   async getBrands(): Promise<Brand[]> {
     return this.request<Brand[]>('/brands', { auth: false });
+  }
+
+  // ---------- cart, quote and orders ----------
+
+  async getCart(): Promise<Cart> {
+    return this.request<Cart>('/cart');
+  }
+
+  async addCartItem(input: CartItemInput): Promise<Cart> {
+    return this.request<Cart>('/cart/items', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateCartItem(input: CartItemInput): Promise<Cart> {
+    return this.request<Cart>('/cart/items', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async removeCartItem(input: { productId: string; sku: string }): Promise<Cart> {
+    return this.request<Cart>('/cart/items', {
+      method: 'DELETE',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async clearCart(): Promise<Cart> {
+    return this.request<Cart>('/cart', { method: 'DELETE' });
+  }
+
+  async quote(input: {
+    items: CartItemInput[];
+    couponCode?: string;
+  }): Promise<Quote> {
+    return this.request<Quote>('/checkout/quote', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async createOrder(
+    input: {
+      items: CartItemInput[];
+      shippingAddress: ShippingAddress;
+      couponCode?: string;
+    },
+    idempotencyKey: string,
+  ): Promise<Order> {
+    return this.request<Order>('/orders', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+  }
+
+  async listMyOrders(query: { page?: number; limit?: number; status?: OrderStatus } = {}): Promise<Page<Order>> {
+    return this.request<Page<Order>>(
+      `/orders/my${toQueryString(query as Record<string, unknown>)}`,
+    );
+  }
+
+  async getMyOrder(id: string): Promise<Order> {
+    return this.request<Order>(`/orders/${encodeURIComponent(id)}`);
+  }
+
+  async cancelMyOrder(id: string, reason?: string): Promise<Order> {
+    return this.request<Order>(`/orders/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async completeMyOrder(id: string): Promise<Order> {
+    return this.request<Order>(`/orders/${encodeURIComponent(id)}/complete`, {
+      method: 'POST',
+    });
+  }
+
+  async requestReturnMyOrder(id: string, reason?: string): Promise<Order> {
+    return this.request<Order>(`/orders/${encodeURIComponent(id)}/return-request`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async adminListOrders(
+    query: { page?: number; limit?: number; status?: OrderStatus } = {},
+  ): Promise<Page<Order>> {
+    return this.request<Page<Order>>(
+      `/admin/orders${toQueryString(query as Record<string, unknown>)}`,
+    );
+  }
+
+  async adminGetOrder(id: string): Promise<Order> {
+    return this.request<Order>(`/admin/orders/${encodeURIComponent(id)}`);
+  }
+
+  async adminUpdateOrderStatus(
+    id: string,
+    input: { status: OrderStatus; reason?: string; restock?: boolean },
+  ): Promise<Order> {
+    return this.request<Order>(`/admin/orders/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  }
+
+  // ---------- admin coupons ----------
+
+  async adminCreateCoupon(input: {
+    code: string;
+    type: 'PERCENT' | 'FIXED';
+    value: number;
+    maxDiscount?: number | null;
+    minOrderAmount?: number;
+    startsAt?: string | null;
+    endsAt?: string | null;
+    isActive?: boolean;
+    usageLimitTotal?: number | null;
+    usageLimitPerUser?: number | null;
+  }): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>('/admin/coupons', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async adminListCoupons(
+    query: { page?: number; limit?: number } = {},
+  ): Promise<Page<Record<string, unknown>>> {
+    return this.request<Page<Record<string, unknown>>>(
+      `/admin/coupons${toQueryString(query as Record<string, unknown>)}`,
+    );
   }
 
   // ---------- admin catalog ----------

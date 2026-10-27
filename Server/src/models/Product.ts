@@ -7,7 +7,15 @@ export interface ProductVariant {
   size?: string;
   /** Variant price override, integer VND. Undefined = inherit product price. */
   price?: number;
+  /** Physical stock on hand. */
   quantity: number;
+  /**
+   * Quantity held for non-terminal orders (PENDING..SHIPPING,
+   * DELIVERY_FAILED). Available = quantity - reserved. Never edited
+   * directly through the product form; only order lifecycle and
+   * audited inventory adjustments change it (see ADR).
+   */
+  reserved: number;
 }
 
 export interface ProductDoc extends Document {
@@ -53,6 +61,16 @@ const variantSchema = new Schema<ProductVariant>(
       validate: {
         validator: (value: number) => Number.isInteger(value),
         message: 'Variant quantity must be an integer',
+      },
+    },
+    reserved: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: [0, 'Variant reserved must be >= 0'],
+      validate: {
+        validator: (value: number) => Number.isInteger(value),
+        message: 'Variant reserved must be an integer',
       },
     },
   },
@@ -140,6 +158,10 @@ export function toPublicProduct(product: ProductDoc, now: Date = new Date()) {
       quantity: v.quantity,
     })),
   };
+  const totalAvailable = product.variants.reduce(
+    (sum, v) => sum + Math.max(0, (v.quantity || 0) - (v.reserved || 0)),
+    0,
+  );
   return {
     id: product._id.toString(),
     title: product.title,
@@ -159,13 +181,16 @@ export function toPublicProduct(product: ProductDoc, now: Date = new Date()) {
       size: variant.size,
       price: variant.price,
       quantity: variant.quantity,
+      reserved: variant.reserved || 0,
+      available: Math.max(0, (variant.quantity || 0) - (variant.reserved || 0)),
       effectivePrice: effectivePrice(plain, variant, now),
-      inStock: variant.quantity > 0,
+      inStock: Math.max(0, (variant.quantity || 0) - (variant.reserved || 0)) > 0,
     })),
     priceRange: priceRange(plain, now),
     onSale: isSaleActive(plain, now),
     totalStock: totalStock(plain),
-    inStock: totalStock(plain) > 0,
+    totalAvailable,
+    inStock: totalAvailable > 0,
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
   };

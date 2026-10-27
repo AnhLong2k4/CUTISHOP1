@@ -23,6 +23,13 @@ const envSchema = z.object({
   CLOUDINARY_NAME: z.string().optional().default(''),
   CLOUDINARY_KEY: z.string().optional().default(''),
   CLOUDINARY_SECRET: z.string().optional().default(''),
+  // Shipping is calculated only on the server (ADR, section 4.3).
+  // Demo default is 0 VND; change via Server/.env + backend restart,
+  // never via frontend code or client-sent values.
+  SHIPPING_FEE_VND: z.coerce.number().int().min(0).default(0),
+  SHIPPING_FREE_THRESHOLD_VND: z.coerce.number().int().min(0).optional(),
+  // How long a PENDING COD order holds its reservation (ADR, section 2.3).
+  RESERVATION_HOLD_HOURS: z.coerce.number().int().min(1).max(168).default(48),
 });
 
 export type AppEnv = z.infer<typeof envSchema> & { corsOrigins: string[] };
