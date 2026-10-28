@@ -125,7 +125,7 @@ không bao giờ chạm vào database trong `MONGO_URI` của bạn.
 
 ## Lộ trình
 
-- Phase 1 (hiện tại): nền tảng, authentication, catalog sản phẩm,
+- Phase 1 (đã hoàn thành — đã merge vào `main`): nền tảng, authentication, catalog sản phẩm,
   storefront M01–M03 + M09, admin tối thiểu cho catalog
 - Phase 2: giỏ hàng, báo giá phía server, checkout COD chống trùng
   đơn, tồn kho theo giao dịch

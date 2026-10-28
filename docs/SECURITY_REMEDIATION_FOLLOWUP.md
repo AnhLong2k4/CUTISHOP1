@@ -9,6 +9,21 @@
   Muse, Node v24.22.1; mọi thao tác npm dùng **npm 11.12.1** (đúng phiên
   bản trên máy Windows của chủ repo) qua `npx npm@11.12.1`.
 
+> **Trạng thái hiện tại (cập nhật 2026-10-26):** báo cáo này ghi
+> lại round 2 tại thời điểm thực hiện (PR mở vào base
+> `fix/phase1-security-audit`, chưa merge — đúng tại thời điểm
+> đó). Sau đó chủ repo đã đổi base của PR #2 sang `main` và
+> **PR #2 đã merge vào `main`** (commit merge
+> `3f654bcc05c2ab5dd603923af87a18d03c5da7c0`). Bước xác minh
+> Windows ở Mục 7–8 cũng đã hoàn tất: chủ repo chạy trên Windows
+> ngày 2026-10-26 trên nhánh
+> `fix/phase1-security-audit-followup` — `npm audit` cho kết quả
+> **0 vulnerabilities**, `npm test` **47 tests PASS**, lint /
+> typecheck / build PASS (cùng cây dependency đã merge vào
+> `main`). `npm audit` phía sandbox vẫn BLOCKED (403
+> `policy_denied`) như đã ghi ở Mục 6–7. Thân báo cáo dưới đây
+> giữ nguyên như bằng chứng tại thời điểm round 2.
+
 ## 1. Vì sao có round 2 (bằng chứng mới từ Windows)
 
 Chủ repo đã kiểm chứng round 1 trên Windows (Node v24.15.0, npm 11.12.1):
