@@ -1,10 +1,11 @@
-# CutiShop Mobile — Expo Phase 1 và 1.1
+# CutiShop Mobile — Expo Phase 1, 1.1 và 2A
 
 Ứng dụng React Native + Expo (SDK 58) cho CutiShop, dùng chung backend
 `/api/v1` và dữ liệu thật với website. Phase 1 chỉ gồm: đăng nhập/đăng
 xuất, danh mục sản phẩm, tìm kiếm, chi tiết sản phẩm và chọn biến thể.
-Phase 1.1 hoàn thiện xác thực mobile (refresh riêng, xem dưới). Chưa có
-giỏ hàng, checkout, đơn hàng hay AI trong các phase này.
+Phase 1.1 hoàn thiện xác thực mobile (refresh riêng, xem dưới).
+Phase 2A thêm giỏ hàng (xem `docs/MOBILE_PHASE_2A_CART_REPORT.md`).
+Chưa có checkout, đơn hàng hay AI trong các phase này.
 
 ## Chạy
 

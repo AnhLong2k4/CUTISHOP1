@@ -34,4 +34,16 @@ export const styles = StyleSheet.create({
   chipText: { fontSize: 14 },
   chipTextSelected: { fontWeight: '700' },
   label: { fontSize: 14, fontWeight: '600', marginTop: 12, marginBottom: 6 },
+  row: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', gap: 8,
+  },
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 },
+  qtyButton: {
+    borderWidth: 1, borderColor: '#ccc', borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 6, alignItems: 'center',
+  },
+  qtyButtonText: { fontSize: 18, fontWeight: '700' },
+  dangerText: { fontSize: 14, color: '#b91c1c', fontWeight: '600' },
+  thumb: { width: 64, height: 64, borderRadius: 8 },
 });

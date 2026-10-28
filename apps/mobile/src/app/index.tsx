@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
+import { useCart } from '../cart/CartContext';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
 import { styles } from '../components/styles';
 import { api } from '../lib/api';
@@ -18,6 +19,7 @@ import { API_BASE_URL } from '../lib/config';
 
 export default function CatalogScreen() {
   const { user, status, logout, handleSessionExpired } = useAuth();
+  const { count: cartCount } = useCart();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState('');
@@ -102,6 +104,13 @@ export default function CatalogScreen() {
             </TouchableOpacity>
           </Link>
         )}
+        <Link href="/cart" asChild>
+          <TouchableOpacity style={styles.ghostButton}>
+            <Text style={styles.ghostButtonText}>
+              Giỏ hàng{cartCount > 0 ? ` (${cartCount})` : ''}
+            </Text>
+          </TouchableOpacity>
+        </Link>
       </View>
       <TextInput
         style={[styles.input, { marginTop: 12 }]}
