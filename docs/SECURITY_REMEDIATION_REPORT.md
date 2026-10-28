@@ -10,6 +10,18 @@
   Muse, Node v24.22.1; mọi thao tác npm dùng **npm 11.12.1** (đúng phiên
   bản trên máy Windows của chủ repo) qua `npx npm@11.12.1` — lý do ở mục 6.
 
+> **Trạng thái hiện tại (cập nhật 2026-10-26):** báo cáo này là
+> bằng chứng lịch sử của vòng 1 (2026-10-25) — số liệu trong thân
+> báo cáo không thay đổi. Hai kết luận của vòng 1 (giữ zod
+> 3.25.76; nodemailer 7.0.13 coi như đã vá) **đã bị vòng 2 thay
+> thế**: audit trên Windows sau đó cho thấy vẫn còn 2 advisory
+> High, và vòng 2 đã nâng nodemailer lên 10.2.1, migrate zod lên
+> 4.6.7 — xem `docs/SECURITY_REMEDIATION_FOLLOWUP.md`. Cả hai
+> vòng đã vào `main` qua PR #2 (commit merge
+> `3f654bcc05c2ab5dd603923af87a18d03c5da7c0`, 2026-10-26); PR #1
+> chứa vòng 1 tại thời điểm cập nhật vẫn OPEN nhưng nội dung đã
+> bị thay thế (mọi commit đã có trong `main` qua PR #2).
+
 ## 1. Baseline audit (trước sửa)
 
 Kết quả thực tế ghi lại từ lần chạy `npm audit` thành công duy nhất trong
