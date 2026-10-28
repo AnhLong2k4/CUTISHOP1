@@ -9,11 +9,13 @@ import {
   type ReactNode,
 } from 'react';
 import { api, secureTokenStorage, tokenStore } from '../lib/api';
+import { apiStatus } from '../lib/apiError';
+import { clearPersistedSession } from '../lib/session';
 import {
-  clearPersistedToken,
-  loadPersistedToken,
-  persistToken,
-} from '../lib/session';
+  persistLoginSession,
+  completeLogout,
+  restoreSession,
+} from '../lib/sessionFlow';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -32,26 +34,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<PublicUser | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
 
-  // Restore: load the persisted access token into memory, then validate
-  // it with /auth/me. A stale or expired token is deleted, never kept.
+  // Restore via the testable session flow: no tokens -> anonymous;
+  // access token -> validate with /auth/me (api-client refreshes once
+  // via refresh-mobile on 401 before failing); only a refresh token ->
+  // one refresh, then me(). Auth failures delete both tokens; network,
+  // 403 and 500 errors do not delete them.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const persisted = await loadPersistedToken(secureTokenStorage);
-      if (persisted) {
-        tokenStore.set(persisted);
-        try {
-          const me = await api.me();
-          if (cancelled) return;
-          setUser(me);
-          setStatus('authenticated');
-          return;
-        } catch {
-          await clearPersistedToken(secureTokenStorage);
-          tokenStore.set(null);
-        }
+      const result = await restoreSession({
+        storage: secureTokenStorage,
+        setMemoryToken: (token) => tokenStore.set(token),
+        me: () => api.me(),
+        refreshSession: () => api.refreshSession(),
+        isAuthError: (error) => apiStatus(error) === 401,
+      });
+      if (cancelled) return;
+      if (result.status === 'authenticated') {
+        setUser(result.user);
+        setStatus('authenticated');
+      } else {
+        // 'anonymous' and 'unavailable' both leave the UI logged out;
+        // 'unavailable' keeps the tokens so a later retry can succeed.
+        setStatus('anonymous');
       }
-      if (!cancelled) setStatus('anonymous');
     })();
     return () => {
       cancelled = true;
@@ -59,24 +65,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const data = await api.login({ email, password });
-    await persistToken(secureTokenStorage, data.accessToken);
+    const data = await api.loginMobile({ email, password });
+    await persistLoginSession(
+      secureTokenStorage,
+      data.accessToken,
+      data.refreshToken,
+    );
     setUser(data.user);
     setStatus('authenticated');
   }, []);
 
   const logout = useCallback(async () => {
-    // Best-effort server logout (revokes the cookie session if the
-    // native stack sent one); local session is always cleared.
-    await api.logout();
-    await clearPersistedToken(secureTokenStorage);
+    // Local logout ALWAYS completes, even when the server call fails
+    // (offline, 500): completeLogout clears both tokens in a finally
+    // block and never throws. This fixes the Phase 1 bug where an
+    // offline logout never reached SecureStore clearing or the UI
+    // state change. Limit: an offline logout cannot revoke the server
+    // session until a network round trip succeeds.
+    await completeLogout({
+      storage: secureTokenStorage,
+      setMemoryToken: (token) => tokenStore.set(token),
+      logoutServer: () => api.logoutMobile(),
+    });
     setUser(null);
     setStatus('anonymous');
   }, []);
 
   const handleSessionExpired = useCallback(async () => {
     tokenStore.set(null);
-    await clearPersistedToken(secureTokenStorage);
+    await clearPersistedSession(secureTokenStorage);
     setUser(null);
     setStatus('anonymous');
   }, []);

@@ -1,9 +1,10 @@
-# CutiShop Mobile — Expo Phase 1
+# CutiShop Mobile — Expo Phase 1 và 1.1
 
 Ứng dụng React Native + Expo (SDK 58) cho CutiShop, dùng chung backend
 `/api/v1` và dữ liệu thật với website. Phase 1 chỉ gồm: đăng nhập/đăng
 xuất, danh mục sản phẩm, tìm kiếm, chi tiết sản phẩm và chọn biến thể.
-Chưa có giỏ hàng, checkout, đơn hàng hay AI trong Phase 1.
+Phase 1.1 hoàn thiện xác thực mobile (refresh riêng, xem dưới). Chưa có
+giỏ hàng, checkout, đơn hàng hay AI trong các phase này.
 
 ## Chạy
 
@@ -29,29 +30,41 @@ npm run android    # cần Android Studio / emulator
 - Màn hình đăng nhập và danh mục hiển thị API base URL đang dùng để dễ
   chẩn đoán khi không kết nối được.
 
-## Session trên mobile — quyết định Phase 1
+## Session trên mobile — Phase 1.1 (phương án C, đã duyệt)
 
-Backend cấp refresh token **chỉ qua cookie HttpOnly**
-(`cutishop1_refresh`, path `/api/v1/auth`) và endpoint refresh chỉ đọc
-cookie, không nhận token qua body/header. JavaScript không đọc được
+Web dùng refresh token **chỉ qua cookie HttpOnly**
+(`cutishop1_refresh`, path `/api/v1/auth`). JavaScript không đọc được
 cookie HttpOnly, và fetch của React Native không đảm bảo giữ cookie qua
-các lần mở app, nên Phase 1 **không dựa vào cookie refresh**.
+các lần mở app, nên mobile **không dùng luồng cookie**.
 
-- Chỉ access token (15 phút) được lưu, và chỉ trong `expo-secure-store`
+Mobile dùng 3 endpoint riêng, tái dùng đúng `authService` của web
+(rotation, kiểm tra hash, phát hiện reuse và thu hồi theo session):
+`POST /auth/login-mobile`, `/auth/refresh-mobile`,
+`/auth/logout-mobile`. Refresh token đi trong body, **không set cookie**
+cho mobile. Access token TTL 15 phút, refresh token TTL 7 ngày, không đổi.
+
+- Access token và refresh token chỉ lưu trong `expo-secure-store`
   (Android: SharedPreferences mã hóa bằng Keystore; iOS: Keychain).
-  Không dùng AsyncStorage, file thường hay state lưu lâu cho token.
+  Không dùng AsyncStorage, file thường, không log token, không đưa
+  secrets vào bundle.
 - Mở app: token đã lưu được nạp vào bộ nhớ và kiểm chứng bằng
-  `/auth/me`. Token hết hạn/không hợp lệ bị xóa và app yêu cầu đăng
-  nhập lại.
-- Hết phiên giữa chừng (401 sau khi thử refresh bằng cookie thất bại):
-  app xóa token đã lưu và đưa người dùng về đăng nhập.
-- Đăng xuất: gọi `/auth/logout` best-effort (thu hồi session cookie nếu
-  native stack có gửi) và luôn xóa token local.
-
-Làm mới phiên âm thầm trên mobile là việc của Phase sau và cần một
-quyết định bảo mật riêng (ví dụ endpoint refresh cho mobile), không
-được lén lút lưu refresh token vào SecureStore trong Phase 1 khi backend
-không cấp nó qua kênh đó.
+  `/auth/me`. Nếu chỉ còn refresh token, app thử refresh một lần rồi
+  mới gọi `/me`. Hết phiên không khôi phục được thì xóa cả hai token
+  và yêu cầu đăng nhập lại. Lỗi mạng, 403, 500 không xóa phiên.
+- Hết phiên giữa chừng: api-client refresh một lần duy nhất
+  (single-flight cho nhiều request cùng 401), lưu cặp token đã xoay
+  vòng, rồi retry request gốc tối đa một lần. Refresh thất bại do hết
+  hạn/thu hồi/reuse thì xóa cả hai token và đăng xuất.
+- Đăng xuất: gọi `/auth/logout-mobile` (chỉ thu hồi đúng session đó)
+  và **luôn** xóa token local + chuyển UI về anonymous, kể cả khi
+  API logout thất bại (mất mạng, 500). Giới hạn: đăng xuất offline
+  không thể thu hồi session trên server cho tới khi có mạng; session
+  đó vẫn còn hiệu lực tới khi hết hạn hoặc bị thu hồi sau.
+- Refresh-mobile giữ nguyên tư thế rate limit như refresh web trong
+  phase này (không có limiter riêng) — quyết định đã cân nhắc rủi ro,
+  không khẳng định endpoint refresh đã có rate limit riêng.
+- Web không đổi: vẫn dùng cookie HttpOnly, api-client mặc định vẫn là
+  chế độ cookie; chỉ mobile truyền `authMode: 'mobile'`.
 
 ## Kiểm thử
 

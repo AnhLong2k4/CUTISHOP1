@@ -24,6 +24,9 @@ Base URL mặc định khi chạy local: `http://127.0.0.1:8081/api/v1`
 | POST | /auth/login | Công khai (rate limit) | `{ email, password }` | 200; 401 `INVALID_CREDENTIALS` (thông điệp chung cho email lạ và sai mật khẩu) |
 | POST | /auth/refresh | Cookie refresh + header `X-Requested-With` | — | 200 xoay vòng token; 401 `SESSION_REVOKED` khi phát hiện dùng lại token cũ (thu hồi mọi phiên); 403 `CSRF_CHECK_FAILED` khi thiếu header |
 | POST | /auth/logout | Cookie refresh + header | — | 200, thu hồi phiên hiện tại |
+| POST | /auth/login-mobile | Mobile, công khai (rate limit như login) | `{ email, password }` | 200 kèm access token + refresh token trong body, **không set cookie**; một lần login tạo đúng một session |
+| POST | /auth/refresh-mobile | Mobile, refresh token trong body + header `X-Requested-With` | `{ refreshToken }` | 200 xoay vòng cặp token trong body; 401 `SESSION_REVOKED` khi dùng lại token cũ, `SESSION_EXPIRED` khi session hết hạn; 403 `CSRF_CHECK_FAILED` khi thiếu header |
+| POST | /auth/logout-mobile | Mobile, refresh token trong body + header | `{ refreshToken? }` | 200, chỉ thu hồi đúng session đó; không có token vẫn 200 (idempotent) |
 | GET | /auth/me | Bearer access token | — | 200 thông tin tài khoản; 401 `TOKEN_MISSING`/`TOKEN_INVALID`/`TOKEN_EXPIRED` |
 | POST | /auth/forgot-password | Công khai (rate limit) | `{ email }` | Luôn 200 với thông điệp chung, không tiết lộ email có tồn tại hay không |
 | POST | /auth/reset-password | Công khai | `{ token, password>=8 }` | 200; 400 `RESET_TOKEN_INVALID` khi token sai/hết hạn/đã dùng. Đặt lại thành công thu hồi mọi phiên. |
@@ -33,6 +36,11 @@ gửi qua header `Authorization: Bearer ...`, client chỉ giữ trong bộ nh�
 Refresh token: JWT 7 ngày trong cookie HttpOnly `cutishop1_refresh`
 (path `/api/v1/auth`, SameSite=Lax, Secure khi production), xoay vòng
 mỗi lần refresh; server chỉ lưu bản băm sha256 của refresh token.
+Mobile (Phase 1.1, phương án C) dùng cùng cơ chế nhưng qua body:
+login-mobile/refresh-mobile/logout-mobile, không set cookie, refresh
+token chỉ lưu trong SecureStore của thiết bị. Refresh-mobile giữ
+nguyên tư thế rate limit như refresh web trong phase này (không có
+limiter riêng).
 
 Reset token: chuỗi ngẫu nhiên 32 byte; server chỉ lưu bản băm sha256,
 hạn 15 phút, dùng một lần. Email chứa liên kết

@@ -17,7 +17,7 @@ import { apiErrorMessage, isSessionExpired } from '../lib/apiError';
 import { API_BASE_URL } from '../lib/config';
 
 export default function CatalogScreen() {
-  const { user, status, logout } = useAuth();
+  const { user, status, logout, handleSessionExpired } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState('');
@@ -48,8 +48,12 @@ export default function CatalogScreen() {
         setPage(pageToLoad);
       } catch (err) {
         if (isSessionExpired(err)) {
-          // Catalog is public, so a 401 here means a stale session was
-          // attached; the auth provider will clear it on next restore.
+          // A 401 that survived the api-client's mobile refresh means
+          // the session is unrecoverable: clear both tokens and go
+          // anonymous immediately, not only on the next app restart.
+          // (Catalog is public, so this path is rare; it exists for
+          // authenticated requests that will be added in later phases.)
+          await handleSessionExpired();
           setError('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.');
         } else {
           setError(apiErrorMessage(err, 'Không tải được danh sách sản phẩm.'));
@@ -59,7 +63,7 @@ export default function CatalogScreen() {
         setLoadingMore(false);
       }
     },
-    [submittedSearch, category, reloadKey],
+    [submittedSearch, category, reloadKey, handleSessionExpired],
   );
 
   useEffect(() => {

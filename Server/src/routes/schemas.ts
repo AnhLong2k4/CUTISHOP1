@@ -19,6 +19,20 @@ export const loginSchema = z.object({
 
 export const forgotPasswordSchema = z.object({ email });
 
+/**
+ * Mobile-only auth (Phase 1.1, approved option C). The refresh token
+ * travels in the request body, never in a cookie, because React Native
+ * cannot reliably persist the HttpOnly cookie used by the web flow.
+ * The token itself is a JWT; only its SHA-256 hash is stored server-side.
+ */
+export const refreshMobileSchema = z.object({
+  refreshToken: z.string().trim().min(1, 'Refresh token là bắt buộc'),
+});
+
+export const logoutMobileSchema = z.object({
+  refreshToken: z.string().trim().min(1).optional(),
+});
+
 export const resetPasswordSchema = z.object({
   token: z.string().trim().min(10, 'Token không hợp lệ'),
   password,
