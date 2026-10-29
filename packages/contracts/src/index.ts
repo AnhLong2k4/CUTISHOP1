@@ -39,6 +39,10 @@ export interface ProductVariant {
   /** Variant price override in integer VND; undefined = inherit product price. */
   price?: number;
   quantity: number;
+  /** Quantity held for non-terminal orders; 0 for products without orders. */
+  reserved?: number;
+  /** Computed by the API: quantity - reserved. */
+  available?: number;
   /** Computed by the API: final price for this variant in integer VND. */
   effectivePrice: number;
   inStock: boolean;
@@ -66,6 +70,8 @@ export interface Product {
   onSale: boolean;
   /** Computed by the API: sum of variant quantities. */
   totalStock: number;
+  /** Computed by the API: sum of (quantity - reserved). */
+  totalAvailable?: number;
   inStock: boolean;
   createdAt: string;
   updatedAt: string;
@@ -110,6 +116,102 @@ export interface ProductQuery {
   inStock?: boolean;
   sale?: boolean;
   sort?: ProductSort;
+}
+
+export type OrderStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'PROCESSING'
+  | 'SHIPPING'
+  | 'DELIVERED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'DELIVERY_FAILED'
+  | 'RETURN_REQUESTED'
+  | 'RETURNED'
+  | 'REFUNDED';
+
+export type PaymentStatus = 'UNPAID' | 'PAID_ON_DELIVERY' | 'REFUNDED';
+
+export interface CartItemInput {
+  productId: string;
+  sku: string;
+  quantity: number;
+}
+
+export interface Cart {
+  user: string;
+  items: CartItemInput[];
+}
+
+export interface QuoteLine {
+  productId: string;
+  productTitle: string;
+  sku: string;
+  color?: string;
+  size?: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+  available: number;
+}
+
+export interface Quote {
+  items: QuoteLine[];
+  couponCode?: string | null;
+  subtotal: number;
+  discount: number;
+  subtotalAfterDiscount: number;
+  shipping: number;
+  total: number;
+  canOrder: boolean;
+}
+
+export interface ShippingAddress {
+  name: string;
+  phone: string;
+  address: string;
+  note?: string;
+}
+
+export interface OrderItem {
+  productId: string;
+  productTitle: string;
+  sku: string;
+  color?: string;
+  size?: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+}
+
+export interface OrderStatusHistoryEntry {
+  from: string | null;
+  to: string;
+  by: string | null;
+  role: string | null;
+  reason?: string;
+  at: string;
+}
+
+export interface Order {
+  id: string;
+  user: string;
+  items: OrderItem[];
+  shippingAddress: ShippingAddress;
+  couponCode?: string;
+  subtotal: number;
+  discount: number;
+  shipping: number;
+  total: number;
+  paymentMethod: 'COD';
+  paymentStatus: PaymentStatus;
+  status: OrderStatus;
+  reservationExpiresAt: string;
+  deliveredAt?: string;
+  statusHistory: OrderStatusHistoryEntry[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProductInput {

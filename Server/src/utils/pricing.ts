@@ -60,3 +60,79 @@ export function priceRange(
 export function totalStock(product: { variants: VariantCarrier[] }): number {
   return (product.variants ?? []).reduce((sum, variant) => sum + (variant.quantity || 0), 0);
 }
+
+export interface ShippingConfig {
+  shippingFeeVnd: number;
+  shippingFreeThresholdVnd?: number | null;
+}
+
+export interface CouponForPricing {
+  type: 'PERCENT' | 'FIXED';
+  value: number;
+  maxDiscount?: number | null;
+}
+
+export interface OrderTotals {
+  subtotal: number;
+  discount: number;
+  subtotalAfterDiscount: number;
+  shipping: number;
+  total: number;
+}
+
+/**
+ * Server-only shipping rule (ADR section 4.3). The client never supplies
+ * a shipping amount. Demo default config is fee 0, so shipping is 0.
+ */
+export function calculateShipping(
+  subtotalAfterDiscount: number,
+  config: ShippingConfig,
+): number {
+  assertIntegerVND(subtotalAfterDiscount, 'Subtotal after discount');
+  assertIntegerVND(config.shippingFeeVnd, 'Shipping fee');
+  if (
+    config.shippingFreeThresholdVnd !== undefined &&
+    config.shippingFreeThresholdVnd !== null &&
+    config.shippingFreeThresholdVnd > 0 &&
+    subtotalAfterDiscount >= config.shippingFreeThresholdVnd
+  ) {
+    return 0;
+  }
+  return config.shippingFeeVnd;
+}
+
+/**
+ * Order totals in the exact ADR order: subtotal -> discount -> shipping
+ * -> total. All integer VND. Percent discount uses integer floor
+ * division, never floating point, so the result is deterministic and
+ * has no fractional dong.
+ */
+export function calculateOrderTotals(
+  lines: Array<{ unitPrice: number; quantity: number }>,
+  coupon: CouponForPricing | null,
+  shippingConfig: ShippingConfig,
+): OrderTotals {
+  for (const line of lines) {
+    assertIntegerVND(line.unitPrice, 'Unit price');
+    if (!Number.isInteger(line.quantity) || line.quantity < 0) {
+      throw new Error('Quantity must be a non-negative integer');
+    }
+  }
+  const subtotal = lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  let discount = 0;
+  if (coupon) {
+    if (coupon.type === 'PERCENT') {
+      discount = Math.floor((subtotal * coupon.value) / 100);
+      if (coupon.maxDiscount !== undefined && coupon.maxDiscount !== null) {
+        discount = Math.min(discount, coupon.maxDiscount);
+      }
+    } else {
+      discount = coupon.value;
+    }
+    discount = Math.min(Math.max(0, discount), subtotal);
+  }
+  const subtotalAfterDiscount = subtotal - discount;
+  const shipping = calculateShipping(subtotalAfterDiscount, shippingConfig);
+  const total = subtotalAfterDiscount + shipping;
+  return { subtotal, discount, subtotalAfterDiscount, shipping, total };
+}

@@ -2,7 +2,10 @@ import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from 'react-rou
 import { AdminAuthProvider, useAdminAuth } from './auth/AdminAuthContext';
 import { LoadingState } from './components/ui';
 import { api } from './lib/api';
+import { CouponsPage } from './pages/CouponsPage';
 import { LoginPage } from './pages/LoginPage';
+import { OrderDetailPage } from './pages/OrderDetailPage';
+import { OrdersPage } from './pages/OrdersPage';
 import { ProductFormPage } from './pages/ProductFormPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { TaxonomyPage, type TaxonomyItem } from './pages/TaxonomyPage';
@@ -30,6 +33,8 @@ function AdminShell() {
         </Link>
         <nav className="flex gap-1" aria-label="Quản trị">
           <NavLink to="/products" className={navClass}>Sản phẩm</NavLink>
+          <NavLink to="/orders" className={navClass}>Đơn hàng</NavLink>
+          <NavLink to="/coupons" className={navClass}>Mã giảm giá</NavLink>
           <NavLink to="/categories" className={navClass}>Danh mục</NavLink>
           <NavLink to="/brands" className={navClass}>Thương hiệu</NavLink>
         </nav>
@@ -44,6 +49,9 @@ function AdminShell() {
         <Routes>
           <Route index element={<Navigate to="/products" replace />} />
           <Route path="products" element={<ProductsPage />} />
+          <Route path="orders" element={<OrdersPage />} />
+          <Route path="orders/:id" element={<OrderDetailPage />} />
+          <Route path="coupons" element={<CouponsPage />} />
           <Route path="products/new" element={<ProductFormPage />} />
           <Route path="products/:id/edit" element={<ProductFormPage />} />
           <Route
@@ -78,7 +86,7 @@ function AdminShell() {
         </Routes>
       </main>
       <footer className="py-4 text-center text-xs text-neutral-400">
-        Khu vực quản trị tối thiểu của Phase 1 — dashboard, đơn hàng và người dùng thuộc Phase 4.
+        Quản trị CutiShop — đơn hàng, mã giảm giá, sản phẩm, danh mục và thương hiệu. Dashboard và quản lý người dùng thuộc Phase 4.
       </footer>
     </div>
   );

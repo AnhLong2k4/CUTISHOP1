@@ -19,6 +19,20 @@ export const loginSchema = z.object({
 
 export const forgotPasswordSchema = z.object({ email });
 
+/**
+ * Mobile-only auth (Phase 1.1, approved option C). The refresh token
+ * travels in the request body, never in a cookie, because React Native
+ * cannot reliably persist the HttpOnly cookie used by the web flow.
+ * The token itself is a JWT; only its SHA-256 hash is stored server-side.
+ */
+export const refreshMobileSchema = z.object({
+  refreshToken: z.string().trim().min(1, 'Refresh token là bắt buộc'),
+});
+
+export const logoutMobileSchema = z.object({
+  refreshToken: z.string().trim().min(1).optional(),
+});
+
 export const resetPasswordSchema = z.object({
   token: z.string().trim().min(10, 'Token không hợp lệ'),
   password,
@@ -64,6 +78,127 @@ export const brandInputSchema = z.object({
 });
 
 export const brandPatchSchema = brandInputSchema.partial();
+
+const orderItemSchema = z.object({
+  productId: objectIdString,
+  sku: z.string().trim().min(1, 'SKU là bắt buộc').max(64),
+  quantity: z.number().int('Số lượng phải là số nguyên').min(1).max(999),
+});
+
+const shippingAddressSchema = z.object({
+  name: z.string().trim().min(2, 'Tên người nhận là bắt buộc').max(80),
+  phone: z.string().trim().min(6, 'Số điện thoại là bắt buộc').max(20),
+  address: z.string().trim().min(5, 'Địa chỉ giao hàng là bắt buộc').max(500),
+  note: z.string().trim().max(500).optional(),
+});
+
+export const cartItemSchema = z.object({
+  productId: objectIdString,
+  sku: z.string().trim().min(1, 'SKU là bắt buộc').max(64),
+  quantity: z.number().int('Số lượng phải là số nguyên').min(1).max(999),
+});
+
+export const cartUpdateSchema = z.object({
+  productId: objectIdString,
+  sku: z.string().trim().min(1, 'SKU là bắt buộc').max(64),
+  quantity: z.number().int('Số lượng phải là số nguyên').min(0).max(999),
+});
+
+export const cartRemoveSchema = z.object({
+  productId: objectIdString,
+  sku: z.string().trim().min(1, 'SKU là bắt buộc').max(64),
+});
+
+export const quoteSchema = z.object({
+  items: z.array(orderItemSchema).min(1, 'Cần ít nhất một sản phẩm').max(50),
+  couponCode: z.string().trim().max(50).optional(),
+});
+
+export const orderCreateSchema = z.object({
+  items: z.array(orderItemSchema).min(1, 'Cần ít nhất một sản phẩm').max(50),
+  shippingAddress: shippingAddressSchema,
+  couponCode: z.string().trim().max(50).optional(),
+  // Idempotency-Key may also arrive as a header; the controller merges
+  // the two sources. Client-sent money fields are intentionally NOT in
+  // this schema: zod's default strip behaviour drops unknown keys, so a
+  // client subtotal, discount, shipping or total can never reach the
+  // pricing logic. The order is always priced from the catalog.
+  idempotencyKey: z.string().trim().min(1).max(100).optional(),
+});
+
+export const orderQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  status: z
+    .enum([
+      'PENDING',
+      'CONFIRMED',
+      'PROCESSING',
+      'SHIPPING',
+      'DELIVERED',
+      'COMPLETED',
+      'CANCELLED',
+      'DELIVERY_FAILED',
+      'RETURN_REQUESTED',
+      'RETURNED',
+      'REFUNDED',
+    ])
+    .optional(),
+});
+
+export const orderReasonSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+export const couponInputSchema = z
+  .object({
+    code: z.string().trim().min(1).max(50),
+    type: z.enum(['PERCENT', 'FIXED']),
+    value: z.number().int().min(0).max(100000000),
+    maxDiscount: z.number().int().min(0).nullable().optional(),
+    minOrderAmount: z.number().int().min(0).optional(),
+    startsAt: z.iso.datetime().nullable().optional(),
+    endsAt: z.iso.datetime().nullable().optional(),
+    isActive: z.boolean().optional(),
+    usageLimitTotal: z.number().int().min(0).nullable().optional(),
+    usageLimitPerUser: z.number().int().min(0).nullable().optional(),
+  })
+  .refine(
+    (data) => data.type !== 'PERCENT' || (data.value >= 1 && data.value <= 100),
+    { message: 'Coupon PERCENT phải có value từ 1 đến 100', path: ['value'] },
+  )
+  .refine(
+    (data) => data.type !== 'PERCENT' || data.maxDiscount !== null,
+    { message: 'Coupon PERCENT bắt buộc có maxDiscount', path: ['maxDiscount'] },
+  );
+
+export const couponPatchSchema = z.object({
+  code: z.string().trim().min(1).max(50).optional(),
+  type: z.enum(['PERCENT', 'FIXED']).optional(),
+  value: z.number().int().min(0).max(100000000).optional(),
+  maxDiscount: z.number().int().min(0).nullable().optional(),
+  minOrderAmount: z.number().int().min(0).optional(),
+  startsAt: z.iso.datetime().nullable().optional(),
+  endsAt: z.iso.datetime().nullable().optional(),
+  isActive: z.boolean().optional(),
+  usageLimitTotal: z.number().int().min(0).nullable().optional(),
+  usageLimitPerUser: z.number().int().min(0).nullable().optional(),
+});
+
+export const adminOrderStatusSchema = z.object({
+  status: z.enum([
+    'CONFIRMED',
+    'PROCESSING',
+    'SHIPPING',
+    'DELIVERED',
+    'CANCELLED',
+    'DELIVERY_FAILED',
+    'RETURNED',
+    'REFUNDED',
+  ]),
+  reason: z.string().trim().max(500).optional(),
+  restock: z.boolean().optional(),
+});
 
 const variantSchema = z.object({
   sku: z.string().trim().min(1, 'SKU là bắt buộc').max(64),

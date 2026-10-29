@@ -80,6 +80,67 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+// ---------- Mobile-only auth (Phase 1.1, approved option C) ----------
+// These endpoints reuse authService.loginUser / refreshSession /
+// logoutSession exactly, so rotation, hash comparison, reuse detection
+// and per-session revocation are identical to the web flow. The only
+// difference is transport: the refresh token is returned and presented
+// in the response/request body, and NO cookie is set, because the
+// mobile app must not rely on the browser's HttpOnly cookie. A single
+// mobile login creates exactly one RefreshSession (loginUser), so there
+// is no duplicate session. An access token is never accepted as a
+// refresh token (and vice versa): verifyRefreshToken / verifyAccessToken
+// enforce the token `type` claim.
+
+export async function loginMobile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const session = await authService.loginUser(
+      req.validatedBody as { email: string; password: string },
+    );
+    res.status(200).json({
+      success: true,
+      data: {
+        user: session.user,
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function refreshMobile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { refreshToken } = req.validatedBody as { refreshToken: string };
+    const session = await authService.refreshSession(refreshToken);
+    res.status(200).json({
+      success: true,
+      data: {
+        user: session.user,
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function logoutMobile(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { refreshToken } = req.validatedBody as { refreshToken?: string };
+    // Revokes only the session identified by this refresh token
+    // (logoutSession updates one session by sid); other sessions of
+    // the same user are untouched. Idempotent: an invalid or missing
+    // token still ends as logged out.
+    await authService.logoutSession(refreshToken);
+    res.json({ success: true, data: { message: 'Đã đăng xuất' } });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function me(req: Request, res: Response) {
   res.json({ success: true, data: toPublicUser(req.user!) });
 }

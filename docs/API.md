@@ -24,6 +24,9 @@ Base URL mặc định khi chạy local: `http://127.0.0.1:8081/api/v1`
 | POST | /auth/login | Công khai (rate limit) | `{ email, password }` | 200; 401 `INVALID_CREDENTIALS` (thông điệp chung cho email lạ và sai mật khẩu) |
 | POST | /auth/refresh | Cookie refresh + header `X-Requested-With` | — | 200 xoay vòng token; 401 `SESSION_REVOKED` khi phát hiện dùng lại token cũ (thu hồi mọi phiên); 403 `CSRF_CHECK_FAILED` khi thiếu header |
 | POST | /auth/logout | Cookie refresh + header | — | 200, thu hồi phiên hiện tại |
+| POST | /auth/login-mobile | Mobile, công khai (rate limit như login) | `{ email, password }` | 200 kèm access token + refresh token trong body, **không set cookie**; một lần login tạo đúng một session |
+| POST | /auth/refresh-mobile | Mobile, refresh token trong body + header `X-Requested-With` | `{ refreshToken }` | 200 xoay vòng cặp token trong body; 401 `SESSION_REVOKED` khi dùng lại token cũ, `SESSION_EXPIRED` khi session hết hạn; 403 `CSRF_CHECK_FAILED` khi thiếu header |
+| POST | /auth/logout-mobile | Mobile, refresh token trong body + header | `{ refreshToken? }` | 200, chỉ thu hồi đúng session đó; không có token vẫn 200 (idempotent) |
 | GET | /auth/me | Bearer access token | — | 200 thông tin tài khoản; 401 `TOKEN_MISSING`/`TOKEN_INVALID`/`TOKEN_EXPIRED` |
 | POST | /auth/forgot-password | Công khai (rate limit) | `{ email }` | Luôn 200 với thông điệp chung, không tiết lộ email có tồn tại hay không |
 | POST | /auth/reset-password | Công khai | `{ token, password>=8 }` | 200; 400 `RESET_TOKEN_INVALID` khi token sai/hết hạn/đã dùng. Đặt lại thành công thu hồi mọi phiên. |
@@ -33,6 +36,11 @@ gửi qua header `Authorization: Bearer ...`, client chỉ giữ trong bộ nh�
 Refresh token: JWT 7 ngày trong cookie HttpOnly `cutishop1_refresh`
 (path `/api/v1/auth`, SameSite=Lax, Secure khi production), xoay vòng
 mỗi lần refresh; server chỉ lưu bản băm sha256 của refresh token.
+Mobile (Phase 1.1, phương án C) dùng cùng cơ chế nhưng qua body:
+login-mobile/refresh-mobile/logout-mobile, không set cookie, refresh
+token chỉ lưu trong SecureStore của thiết bị. Refresh-mobile giữ
+nguyên tư thế rate limit như refresh web trong phase này (không có
+limiter riêng).
 
 Reset token: chuỗi ngẫu nhiên 32 byte; server chỉ lưu bản băm sha256,
 hạn 15 phút, dùng một lần. Email chứa liên kết
@@ -48,10 +56,66 @@ hạn 15 phút, dùng một lần. Email chứa liên kết
 | GET | /brands | Thương hiệu đang hiện, kèm `productCount`. |
 
 Mỗi sản phẩm trả kèm: `priceRange {min,max}`, `onSale`, `totalStock`,
-`inStock`, và từng biến thể có `effectivePrice`, `inStock`.
+`totalAvailable`, `inStock`, và từng biến thể có `effectivePrice`,
+`quantity`, `reserved`, `available`, `inStock` (inStock tính theo
+`available = quantity - reserved`, không phải theo quantity thô).
 Quy tắc giá: giá riêng của biến thể thắng; nếu không có, dùng giá
 khuyến mãi khi đang trong thời gian khuyến mãi hợp lệ; khuyến mãi
 không cộng dồn lên giá riêng của biến thể.
+
+## Giỏ hàng và báo giá — bắt buộc đăng nhập
+
+Giỏ hàng lưu theo user, không giữ kho. Báo giá (quote) chỉ tính toán,
+không giữ kho và không tiêu thụ coupon; kiểm tra quyết định chỉ xảy
+ra lúc tạo đơn. Giá, giảm giá và phí vận chuyển do server tính; các
+trường tiền do client gửi lên trong body tạo đơn bị loại bỏ.
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| GET | /cart | Giỏ hàng của user hiện tại |
+| POST | /cart/items | Thêm dòng `{ productId, sku, quantity }`; cùng SKU thì cộng dồn |
+| PATCH | /cart/items | Đặt số lượng cho một dòng; `quantity = 0` thì xóa dòng |
+| DELETE | /cart/items | Xóa một dòng `{ productId, sku }` |
+| DELETE | /cart | Xóa toàn bộ giỏ hàng |
+| POST | /checkout/quote | Báo giá `{ items, couponCode? }` → `{ items, couponCode, subtotal, discount, subtotalAfterDiscount, shipping, total, canOrder }`. Thứ tự tính: subtotal → discount → shipping → total, số nguyên VND. |
+
+## Đơn hàng COD — bắt buộc đăng nhập, yêu cầu MongoDB replica set
+
+Tạo đơn bắt buộc header `Idempotency-Key` (UUID v4) hoặc field
+`idempotencyKey` trong body. Cùng user + cùng key + cùng payload thì
+trả 200 kèm đơn cũ; cùng key nhưng payload khác thì 409
+`IDEMPOTENCY_KEY_REUSED`. Tạo đơn chạy trong một MongoDB transaction
+(giữ kho + ghi InventoryMovement + tiêu thụ coupon nếu có); trên
+MongoDB standalone, tạo đơn fail rõ ràng 503
+`TRANSACTION_NOT_SUPPORTED`, không có đường lùi ghi không transaction.
+Giữ kho 48 giờ cho đơn PENDING (cấu hình `RESERVATION_HOLD_HOURS`);
+hết hạn thì đơn bị hủy và giải phóng kho đúng một lần.
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | /orders | Tạo đơn COD. Body: `{ items, shippingAddress { name, phone, address, note? }, couponCode? }` + Idempotency-Key. 201 đơn mới, 200 đơn cũ khi retry; 409 `INSUFFICIENT_STOCK`, `COUPON_*`, `IDEMPOTENCY_KEY_REUSED`; 400 `IDEMPOTENCY_KEY_REQUIRED` |
+| GET | /orders/my | Lịch sử đơn của chính user, phân trang, lọc `status` |
+| GET | /orders/:id | Chi tiết đơn của chính user. Đơn của user khác → 404 gộp, không tiết lộ |
+| POST | /orders/:id/cancel | Khách hủy đơn của mình (PENDING/CONFIRMED; PROCESSING chỉ admin hủy qua route admin) |
+| POST | /orders/:id/complete | Khách xác nhận hoàn thành đơn DELIVERED |
+| POST | /orders/:id/return-request | Khách yêu cầu trả toàn đơn trong 7 ngày kể từ DELIVERED |
+| GET | /admin/orders | Admin: danh sách đơn, lọc `status` |
+| GET | /admin/orders/:id | Admin: chi tiết đơn bất kỳ |
+| PATCH | /admin/orders/:id/status | Admin: chuyển trạng thái `{ status, reason?, restock? }`. `restock` chỉ có ý nghĩa khi chuyển sang RETURNED (nhập lại kho khi xác nhận còn bán được). Chuyển sai → 409 `ORDER_TRANSITION_INVALID` |
+
+## Quản trị coupon — /admin/coupons
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| POST | /admin/coupons | Tạo mã `{ code, type: PERCENT\|FIXED, value, maxDiscount?, minOrderAmount?, startsAt?, endsAt?, isActive?, usageLimitTotal?, usageLimitPerUser? }`. PERCENT bắt buộc `maxDiscount` và `value` 1–100 |
+| GET | /admin/coupons | Danh sách mã, phân trang |
+| GET | /admin/coupons/:id | Chi tiết mã |
+| PATCH | /admin/coupons/:id | Cập nhật mã (các trường tùy chọn) |
+| DELETE | /admin/coupons/:id | Xóa mã chỉ khi chưa từng sử dụng; đã sử dụng → 409 `COUPON_IN_USE`, hãy vô hiệu hóa thay vì xóa |
+
+Quy tắc coupon trong đơn: một đơn một mã, toàn đơn, không cộng dồn;
+`minOrderAmount` xét trên subtotal trước giảm và trước phí; hoàn lượt
+chỉ khi hủy từ PENDING/CONFIRMED, đúng một lần (`USED → VOIDED`).
 
 ## Quản trị — /admin (bắt buộc Bearer + role admin; 401 chưa đăng nhập, 403 không phải admin)
 

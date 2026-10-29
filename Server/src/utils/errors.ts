@@ -18,7 +18,7 @@ export const unauthorized = (message = 'Yêu cầu đăng nhập', code = 'UNAUT
   new ApiError(401, code, message);
 export const forbidden = (message = 'Bạn không có quyền thực hiện thao tác này') =>
   new ApiError(403, 'FORBIDDEN', message);
-export const notFound = (message = 'Không tìm thấy tài nguyên') =>
-  new ApiError(404, 'NOT_FOUND', message);
+export const notFound = (message = 'Không tìm thấy tài nguyên', code = 'NOT_FOUND') =>
+  new ApiError(404, code, message);
 export const conflict = (message: string, code = 'CONFLICT') =>
   new ApiError(409, code, message);

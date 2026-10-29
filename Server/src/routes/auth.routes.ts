@@ -10,6 +10,8 @@ import { validateBody } from '../middleware/validate.js';
 import {
   forgotPasswordSchema,
   loginSchema,
+  logoutMobileSchema,
+  refreshMobileSchema,
   registerSchema,
   resetPasswordSchema,
 } from './schemas.js';
@@ -20,6 +22,23 @@ router.post('/register', registerLimiter, validateBody(registerSchema), authCont
 router.post('/login', loginLimiter, validateBody(loginSchema), authController.login);
 router.post('/refresh', requireCustomHeader, authController.refresh);
 router.post('/logout', requireCustomHeader, authController.logout);
+// Mobile-only (Phase 1.1, approved option C): same service, body token,
+// no cookie. login-mobile shares the web login rate limit; refresh-mobile
+// intentionally keeps the web refresh posture in this phase (no separate
+// limiter, as approved) — do not describe it as separately rate-limited.
+router.post('/login-mobile', loginLimiter, validateBody(loginSchema), authController.loginMobile);
+router.post(
+  '/refresh-mobile',
+  requireCustomHeader,
+  validateBody(refreshMobileSchema),
+  authController.refreshMobile,
+);
+router.post(
+  '/logout-mobile',
+  requireCustomHeader,
+  validateBody(logoutMobileSchema),
+  authController.logoutMobile,
+);
 router.get('/me', requireAuth, authController.me);
 router.post(
   '/forgot-password',
